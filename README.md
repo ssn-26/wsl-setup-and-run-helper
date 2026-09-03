@@ -57,24 +57,12 @@ On first run with no WSL, allow the administrator prompt and restart if asked.
 
 ## Configuration
 
-Downloaded distros install to **`D:\Linux\WSL`** by default. If you don't have a
-D: drive (or want another location), open `WSL-Control-Panel.bat` in a text
-editor and change the one line near the top:
-
-```bat
-set "WSL_BASE=D:\Linux\WSL"
-```
-
-for example `set "WSL_BASE=C:\WSL"`. The folder is created automatically.
-
-Everything else is relative to the file, so the folder is fully portable.
+Everything is relative to the file, so the folder is fully portable.
 
 ---
 
 ## Privacy & safety
 
-- **No account info is included in this repo.** Saved logins live in an
-  `accounts\` folder created at runtime and are excluded via `.gitignore`.
 - Saved passwords are DPAPI-encrypted and only decryptable by *your* Windows
   user account on *your* machine.
 - The setup step only turns WSL on and installs it — it does not delete your
