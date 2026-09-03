@@ -511,7 +511,16 @@ set "newd="
 set /p "newd=Distro name: "
 if /i "!newd!"=="B" goto MAIN
 if "!newd!"=="" goto DOWNLOAD
-set "loc=!WSL_BASE!\!newd!"
+echo.
+echo  Where should !newd! be installed?
+echo    - Press ENTER to use the default base folder:  !WSL_BASE!
+echo    - Or type a different folder, e.g. C:\WSL or E:\Linux
+echo.
+set "base=!WSL_BASE!"
+set /p "base=Install folder [!WSL_BASE!]: "
+if not defined base set "base=!WSL_BASE!"
+set "loc=!base!\!newd!"
+if not exist "!base!" mkdir "!base!" 2>nul
 echo.
 echo  Installing !newd! into !loc!
 echo  This downloads several hundred MB - please wait...
