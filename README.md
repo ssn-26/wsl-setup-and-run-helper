@@ -61,12 +61,12 @@ When you download a distro, the panel asks where to install it — press
 Enter to accept the default (`D:\Linux\WSL`), or type any folder. To change
 that default, edit the `WSL_BASE` line near the top of `WSL-Control-Panel.bat`.
 
+Everything is relative to the file, so the folder is fully portable.
+
 ---
 
 ## Privacy & safety
 
-- **No account info is included in this repo.** Saved logins live in an
-  `accounts\` folder created at runtime and are excluded via `.gitignore`.
 - Saved passwords are DPAPI-encrypted and only decryptable by *your* Windows
   user account on *your* machine.
 - The setup step only turns WSL on and installs it — it does not delete your
