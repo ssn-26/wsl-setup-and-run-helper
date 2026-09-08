@@ -2,7 +2,7 @@
 ::  WSL / Ubuntu Control Panel
 ::  List, open (with saved accounts), close, delete, download distros.
 ::  Passwords are stored ENCRYPTED with Windows DPAPI, never plain text.
-::  Lines starting with REM or :: are comments (ignored by Windows).
+::  Lines starting with REM or :: are comments .
 :: ================================================================
 
 @echo off

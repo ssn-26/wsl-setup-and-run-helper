@@ -9,6 +9,8 @@ download, open (desktop or terminal), close, and delete them from one menu.
 
 No PowerShell knowledge, no memorized `wsl` commands.
 
+My try to learn bash through real world working project.
+
 ---
 
 ## What it does
