@@ -23,16 +23,25 @@ No PowerShell knowledge, no memorized `wsl` commands.
 **Everyday use — a control panel for your distros:**
 - **List** all installed distros and whether they're running.
 - **Open** a distro as a **Desktop** (visual) or a **Terminal**.
-  - Ubuntu-style desktops open over Remote Desktop (xrdp).
-  - Kali opens via its own Win-KeX window.
+  - Kali opens via its own Win-KeX window; every other distro opens over
+    Windows Remote Desktop (xrdp on port 3390).
+  - If a distro has **no desktop yet**, the panel offers to install one for you,
+    auto-detecting the package manager (apt / dnf / zypper / yum / pacman) — so
+    it isn't limited to Ubuntu/Debian.
   - Includes a keep-alive so the desktop doesn't close seconds after launch.
 - **Save accounts** per distro so you don't retype your login. Passwords are
   stored **encrypted with Windows DPAPI** (tied to your Windows login) — never
-  in plain text — in an `accounts\` folder next to the file.
+  in plain text — in an `accounts\` folder next to the file. On a freshly
+  downloaded distro, saving an account can also **create the matching Linux
+  user** for you — with admin rights (added to `sudo` or `wheel`, whichever the
+  distro uses) and a ready XFCE desktop session — so the login works first time.
 - **Close** one/all running distros, or **Shut down all WSL** to free memory.
 - **Download** a new distro from Microsoft's official online list.
 - **Update / repair WSL** itself.
 - **Delete** a distro (with type-the-name-to-confirm protection).
+- **Every menu explains itself** — each option shows in one line what it does
+  behind the scenes (which `wsl` command runs, what changes), so you learn the
+  tool as you use it.
 
 ---
 
@@ -69,6 +78,8 @@ Everything is relative to the file, so the folder is fully portable.
 
 - Saved passwords are DPAPI-encrypted and only decryptable by *your* Windows
   user account on *your* machine.
+- This repo's `.gitignore` excludes the `accounts\` folder, so your encrypted
+  logins are never committed — even if you run the panel from inside the repo.
 - The setup step only turns WSL on and installs it — it does not delete your
   files. Deleting a distro is the only destructive action and requires you to
   type the distro's name to confirm.
@@ -77,7 +88,13 @@ Everything is relative to the file, so the folder is fully portable.
 
 ## Notes / limitations
 
-- Desktop launching is tuned for XFCE-based desktops (Ubuntu via xrdp on port
-  3390, Kali via Win-KeX). A freshly downloaded distro has no desktop until you
-  install one — open it as a **Terminal** first.
-- Paths and ports reflect a personal setup; adjust to taste.
+- Desktops are XFCE-based (Kali via Win-KeX; every other distro via xrdp on
+  port 3390). If a distro has no desktop yet, use the built-in installer — it
+  auto-detects the package manager and the admin group (`sudo`/`wheel`), so it
+  works beyond Ubuntu/Debian (Fedora, openSUSE, Arch, …).
+- **Arch Linux:** `xrdp` isn't in the official repos (it's in the AUR), so the
+  auto-installer can't set up a graphical desktop there; terminal use still works.
+- Non-Debian desktop support (Fedora/openSUSE/Arch) is wired up and validated
+  but less battle-tested than the Ubuntu/Debian/Kali path — please report issues.
+- Paths and ports reflect a personal setup; adjust `WSL_BASE` (top of the file)
+  and the port to taste.
