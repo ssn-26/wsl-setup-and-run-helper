@@ -128,14 +128,14 @@ for /f "usebackq delims=" %%d in (`wsl --list --quiet`) do (
 )
 echo  Just press ENTER to quick-open your desktop (wakes it first), or:
 echo.
-echo  Pick a distro by number:
+echo  Pick a distro by NUMBER to manage it (open / close / delete):
 for /l %%i in (1,1,!count!) do echo     [%%i] !distro[%%i]!
 echo.
-echo     [C] Close a running distro
-echo     [S] Shut down ALL WSL / free memory
-echo     [N] Download / install a NEW distro
-echo     [U] Update / repair WSL itself
-echo     [Q] Quit
+echo     [C] Close a running distro   - stops one distro, frees its RAM
+echo     [S] Shut down ALL WSL         - stops everything, frees the WSL VM
+echo     [N] Download a NEW distro     - runs "wsl --install" for a fresh Linux
+echo     [U] Update / repair WSL       - runs "wsl --update" (admin) to fix WSL
+echo     [Q] Quit                      - close this panel (distros keep running)
 echo.
 set "choice="
 set /p "choice=Enter your choice: "
@@ -193,11 +193,14 @@ if !rcount!==0 (
     pause >nul
     goto MAIN
 )
+echo  Closing a distro runs "wsl --terminate" to stop it and free its RAM.
+echo  Your files are kept - it just powers the Linux machine off.
+echo.
 echo  Currently running:
 for /l %%i in (1,1,!rcount!) do echo     [%%i] !run[%%i]!
 echo.
-echo     [A] Close ALL running distros
-echo     [B] Back
+echo     [A] Close ALL running distros - stops every one at once
+echo     [B] Back                      - return to the main menu
 echo.
 set "rc="
 set /p "rc=Which to close: "
@@ -238,10 +241,10 @@ echo   Selected distro:   !sel!
 echo   State:             !state!
 echo ================================================================
 echo.
-echo     [O] Open this distro
-if "!state!"=="RUNNING" echo     [C] Close (shut down) this distro
-echo     [D] Delete this distro   (permanent!)
-echo     [B] Back to the list
+echo     [O] Open this distro     - pick an account, then Desktop or Terminal
+if "!state!"=="RUNNING" echo     [C] Close this distro     - "wsl --terminate", frees its RAM
+echo     [D] Delete this distro   - "wsl --unregister" - ERASES it (permanent!)
+echo     [B] Back to the list     - return to the main menu
 echo.
 set "act="
 set /p "act=Enter your choice: "
@@ -288,13 +291,17 @@ if exist "!afile!" (
         set "ablob[!acnt!]=%%v"
     )
 )
+echo  A "saved account" stores a Linux username + encrypted password so the
+echo  panel can log you in automatically. Pick one by number, or:
+echo.
 echo  Saved accounts:
 if !acnt!==0 echo     (none saved yet)
 for /l %%i in (1,1,!acnt!) do echo     [%%i] !auser[%%i]!
 echo.
-echo     [A] Add an account
-echo     [W] Open WITHOUT an account
-echo     [B] Back
+echo     [A] Add an account          - save a login, and (for a fresh distro)
+echo                                   CREATE the Linux user so login works
+echo     [W] Open WITHOUT an account - just open; you type your login yourself
+echo     [B] Back                    - return to the distro menu
 echo.
 set "asel="
 set /p "asel=Enter your choice: "
@@ -323,18 +330,86 @@ set "newuser="
 set /p "newuser=Enter the Linux username: "
 if "!newuser!"=="" goto OPEN
 echo.
-echo  Now enter the password (typing is hidden). It will be encrypted.
+REM  ================================================================
+REM  Two separate things happen here, and this is the bit that trips
+REM  new users up:
+REM    1. The panel always SAVES the username + an encrypted password
+REM       so Remote Desktop / the terminal can auto-fill your login.
+REM    2. Optionally, it also CREATES that user INSIDE the distro (so
+REM       the login actually exists). A freshly downloaded distro has
+REM       only "root", so without this step the desktop login fails
+REM       with "user does not exist, or could not be authenticated".
+REM  ================================================================
+echo  Do you also want to CREATE this user inside !sel! now?
+echo    [Y] Yes - new / fresh distro with no login yet. Makes the Linux
+echo        user, gives it sudo (admin), and sets up the XFCE desktop
+echo        session. Use this if desktop login said "user does not exist".
+echo    [N] No  - the Linux user already exists; only remember it here
+echo        for auto-login (does not touch the distro).
+echo.
+set "MKUSER=0"
+set "mk="
+set /p "mk=Create the Linux user too? (Y/N) [Y]: "
+if not defined mk set "MKUSER=1"
+if /i "!mk!"=="Y" set "MKUSER=1"
+echo.
+if "!MKUSER!"=="1" (
+    echo  Enter a password for "!newuser!" - you will type it twice.
+    echo  This becomes the Linux login password AND is saved here encrypted.
+) else (
+    echo  Enter the existing Linux password for "!newuser!" - typed twice.
+    echo  It is only saved here encrypted; the distro is not changed.
+)
 set "TMPBLOB=%TEMP%\wslblob.txt"
-REM  PowerShell reads the password secretly, encrypts it with Windows DPAPI
-REM  (tied to your Windows login), and writes only the scrambled hex to a temp file.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=Read-Host 'Password' -AsSecureString; $p=[Net.NetworkCredential]::new('',$s).Password; Add-Type -AssemblyName System.Security; $by=[Text.Encoding]::Unicode.GetBytes($p); $e=[Security.Cryptography.ProtectedData]::Protect($by,$null,'CurrentUser'); Set-Content -NoNewline -Path '%TMPBLOB%' -Value (($e|ForEach-Object{$_.ToString('x2')}) -join '')"
+REM  PowerShell reads the password secretly (twice, to catch typos) and encrypts
+REM  it with Windows DPAPI (tied to your Windows login), writing only the scrambled
+REM  hex to a temp file. If MKUSER=1 it ALSO creates the Linux user in the distro:
+REM  useradd + add to whichever admin group exists (sudo on Debian family, wheel
+REM  on Fedora/openSUSE/Arch) + an XFCE .xsession, then pipes user:password
+REM  straight into "chpasswd" over stdin - the password never lands on disk or on a
+REM  command line. Exit 3 = the two passwords differed; exit 4 = the distro refused
+REM  the user/password (e.g. distro not healthy). Only single quotes are used inside
+REM  -Command so every "|" stays literal to cmd.exe.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=Read-Host 'Password' -AsSecureString; $s2=Read-Host 'Confirm password' -AsSecureString; $p=[Net.NetworkCredential]::new('',$s).Password; $p2=[Net.NetworkCredential]::new('',$s2).Password; if($p -ne $p2){ Write-Host 'Passwords did not match.'; exit 3 }; Add-Type -AssemblyName System.Security; $by=[Text.Encoding]::Unicode.GetBytes($p); $e=[Security.Cryptography.ProtectedData]::Protect($by,$null,'CurrentUser'); Set-Content -NoNewline -Path '%TMPBLOB%' -Value (($e|ForEach-Object{$_.ToString('x2')}) -join ''); if('!MKUSER!' -eq '1'){ $u='!newuser!'; $script='v=$1; id -u $v >/dev/null 2>&1 || useradd -m -s /bin/bash $v; if getent group sudo >/dev/null 2>&1; then usermod -aG sudo $v; elif getent group wheel >/dev/null 2>&1; then usermod -aG wheel $v; fi; H=$(getent passwd $v | cut -d: -f6); H=${H:-/home/$v}; echo startxfce4 > $H/.xsession; chown ${v}:${v} $H/.xsession 2>/dev/null'; wsl -d !sel! -u root -- bash -c $script _ $u; ($u + ':' + $p) | wsl -d !sel! -u root -- chpasswd; if($LASTEXITCODE -ne 0){ Write-Host 'Could not set the user/password in the distro.'; exit 4 } }"
+if errorlevel 4 (
+    del "%TMPBLOB%" >nul 2>&1
+    echo.
+    echo  The Linux user/password could not be set inside !sel!. Nothing saved.
+    echo  Open the distro as a Terminal and check it is healthy, then try again.
+    pause >nul
+    goto OPEN
+)
+if errorlevel 3 (
+    del "%TMPBLOB%" >nul 2>&1
+    echo.
+    echo  The two passwords did not match - nothing saved. Please try again.
+    pause >nul
+    goto OPEN
+)
 set "blob="
 set /p "blob=" < "%TMPBLOB%"
 del "%TMPBLOB%" >nul 2>&1
+if not defined blob (
+    echo.
+    echo  Could not read the encrypted password - nothing saved. Try again.
+    pause >nul
+    goto OPEN
+)
 if not exist "%~dp0accounts" mkdir "%~dp0accounts"
+REM  Drop any previous saved line for this same username so entries don't pile
+REM  up (e.g. a stale one from before the Linux user existed). Single quotes only
+REM  inside -Command so the "|" pipes stay literal to cmd.exe.
+if exist "!afile!" powershell -NoProfile -Command "$f='!afile!'; $u='!newuser!'; (Get-Content -LiteralPath $f) | Where-Object { $_ -notlike ($u + ',*') } | Set-Content -LiteralPath $f"
 >> "!afile!" echo !newuser!,!blob!
 echo.
-echo  Account "!newuser!" saved for !sel! (password stored encrypted).
+if "!MKUSER!"=="1" (
+    echo  Done. User "!newuser!" was CREATED inside !sel! with sudo rights and an
+    echo  XFCE desktop session, and saved here for auto-login. You can now Open
+    echo  this distro as Desktop or Terminal using this account.
+) else (
+    echo  Account "!newuser!" saved for !sel! - password stored encrypted.
+    echo  NOTE: this did NOT create the Linux user - it only remembers the login.
+)
 pause >nul
 goto OPEN
 
@@ -347,9 +422,11 @@ if defined acctuser echo   Account:  !acctuser!
 if not defined acctuser echo   Account:  (none - you will type login yourself)
 echo ================================================================
 echo.
-echo     [1] Desktop    visual XFCE window via Remote Desktop
-echo     [2] Terminal   command-line window
-echo     [B] Back
+echo     [1] Desktop    - full graphical XFCE desktop.
+echo                      Kali opens in a Win-KeX window; other distros open in
+echo                      Windows Remote Desktop (mstsc) via an xrdp server.
+echo     [2] Terminal   - a command-line window (fastest; no desktop needed).
+echo     [B] Back       - return to the account list.
 echo.
 set "how="
 set /p "how=Enter your choice: "
@@ -368,7 +445,10 @@ echo  Detecting desktop type for !sel! ...
 wsl -d !sel! -- bash -lc "command -v kex >/dev/null 2>&1"
 if not errorlevel 1 goto OPEN_DESKTOP_KEX
 echo  Waking !sel! and starting the desktop server (xrdp)...
-wsl -d !sel! -u root -- service xrdp start
+REM  Start xrdp across any distro: SysV "service" (Debian/Ubuntu/Kali), else
+REM  systemd "systemctl" (Fedora/openSUSE with systemd on), else launch the
+REM  xrdp-sesman + xrdp binaries directly (WSL often has no init running).
+wsl -d !sel! -u root -- bash -c "if service xrdp start >/dev/null 2>&1; then :; elif systemctl start xrdp >/dev/null 2>&1; then systemctl start xrdp-sesman >/dev/null 2>&1; else pgrep -x xrdp-sesman >/dev/null 2>&1 || (/usr/sbin/xrdp-sesman >/dev/null 2>&1 &); sleep 1; pgrep -x xrdp >/dev/null 2>&1 || (/usr/sbin/xrdp >/dev/null 2>&1 &); fi"
 echo  Waiting 2 seconds...
 timeout /t 2 /nobreak >nul
 echo  Checking the desktop server is listening on port 3390...
@@ -406,8 +486,78 @@ goto DISTRO_MENU
 echo.
 echo  This distro has no desktop server the panel knows how to open.
 echo  Ubuntu-24.04 opens via xrdp; Kali opens via Win-KeX (kex).
-echo  A freshly downloaded distro has neither yet - open it as a
-echo  Terminal instead, and install a desktop first.
+echo  A freshly downloaded distro has neither yet.
+echo.
+echo  I can download and install one for you now:
+echo    - Kali:      kali-win-kex (its own Win-KeX desktop)
+echo    - Any other: XFCE desktop + xrdp on port 3390. The installer
+echo                 auto-detects the package manager (apt / dnf / zypper
+echo                 / yum / pacman), so it is not limited to Ubuntu/Debian.
+echo  This needs internet and a few hundred MB; it can take several minutes.
+echo.
+echo    [I] Install the desktop now (auto)
+echo    [T] Open as a Terminal instead
+echo    [B] Back
+echo.
+set "ndchoice="
+set /p "ndchoice=Enter your choice: "
+if /i "!ndchoice!"=="T" goto OPEN_TERMINAL
+if /i "!ndchoice!"=="I" goto INSTALL_DESKTOP
+goto DISTRO_MENU
+
+
+:INSTALL_DESKTOP
+REM  ================================================================
+REM  Download + install a desktop for a distro that has none yet.
+REM    - Kali             -> kali-win-kex (its own first-party Win-KeX GUI).
+REM    - Any other distro -> XFCE + xrdp. The installer script AUTO-DETECTS
+REM      the package manager (apt / dnf / zypper / yum / pacman), installs
+REM      the matching packages, puts xrdp on port 3390, makes XFCE the
+REM      default session, and starts xrdp. That script is carried in as
+REM      base64 (DESK_B64) so no layer of shell quoting can mangle it.
+REM  Runs as root. On success we loop back to OPEN_DESKTOP to retry.
+REM  ================================================================
+REM  Kali is the one distro we branch by NAME: it needs kex, but kex is not
+REM  installed yet, so we cannot detect it by capability the way OPEN does.
+echo !sel! | findstr /i "kali" >nul
+if not errorlevel 1 goto INSTALL_DESKTOP_KEX
+
+echo.
+echo  Installing an XFCE desktop + xrdp on !sel! ...
+echo  (auto-detecting the package manager - this can take several minutes)
+echo.
+set "DESK_B64=IyEvYmluL2Jhc2gKIyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CiMgQXV0by1pbnN0YWxsIGFuIFhGQ0UgZGVza3RvcCArIHhyZHAgb24gQU5ZIGNvbW1vbiBXU0wgZGlzdHJvLCB0aGVuIHB1dCB4cmRwCiMgb24gcG9ydCAzMzkwIGFuZCBtYWtlIFhGQ0UgdGhlIGRlZmF1bHQgUkRQIHNlc3Npb24uIERlY29kZWQgZnJvbSBiYXNlNjQgYW5kCiMgcnVuIGJ5IHRoZSBXU0wgQ29udHJvbCBQYW5lbC4gUHJpbnRzIERFU0tfU0VUVVBfRE9ORSBvbiBzdWNjZXNzOyBhIG5vbi16ZXJvCiMgZXhpdCB0ZWxscyB0aGUgcGFuZWwgdGhlIGluc3RhbGwgZmFpbGVkLgojID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KCmluc3RhbGxfYXB0KCkgewogICAgZXhwb3J0IERFQklBTl9GUk9OVEVORD1ub25pbnRlcmFjdGl2ZQogICAgYXB0LWdldCB1cGRhdGUKICAgIGFwdC1nZXQgaW5zdGFsbCAteSB4ZmNlNCB4ZmNlNC1nb29kaWVzIHhyZHAgZGJ1cy14MTEKfQppbnN0YWxsX2RuZigpIHsKICAgIGRuZiBpbnN0YWxsIC15IHhyZHAgeG9yZ3hyZHAKICAgIGRuZiBncm91cCBpbnN0YWxsIC15ICJYZmNlIERlc2t0b3AiIFwKICAgICAgfHwgZG5mIGdyb3VwaW5zdGFsbCAteSAiWGZjZSIgXAogICAgICB8fCBkbmYgaW5zdGFsbCAteSBAeGZjZS1kZXNrdG9wLWVudmlyb25tZW50Cn0KaW5zdGFsbF95dW0oKSB7CiAgICB5dW0gaW5zdGFsbCAteSBlcGVsLXJlbGVhc2UgfHwgdHJ1ZQogICAgeXVtIGdyb3VwaW5zdGFsbCAteSAiWGZjZSIgfHwgdHJ1ZQogICAgeXVtIGluc3RhbGwgLXkgeHJkcAp9Cmluc3RhbGxfenlwcGVyKCkgewogICAgenlwcGVyIC0tbm9uLWludGVyYWN0aXZlIGluc3RhbGwgeHJkcAogICAgenlwcGVyIC0tbm9uLWludGVyYWN0aXZlIGluc3RhbGwgLXQgcGF0dGVybiB4ZmNlCn0KaW5zdGFsbF9wYWNtYW4oKSB7CiAgICBwYWNtYW4gLVN5IC0tbm9jb25maXJtIHhmY2U0CiAgICAjIHhyZHAgaXMgbm90IGluIEFyY2gncyBvZmZpY2lhbCByZXBvcyAoaXQgbGl2ZXMgaW4gdGhlIEFVUiksIHNvIHRoaXMgbWF5CiAgICAjIGZhaWwgLSByZXBvcnQgY2xlYXJseSByYXRoZXIgdGhhbiBsZWF2aW5nIGEgaGFsZi1jb25maWd1cmVkIGRlc2t0b3AuCiAgICBwYWNtYW4gLVMgLS1ub2NvbmZpcm0geHJkcCB8fCB7CiAgICAgICAgZWNobyAiWFJEUF9OT1RfSU5fUkVQTyIKICAgICAgICBleGl0IDIwCiAgICB9Cn0KCiMgLS0tIFBpY2sgdGhlIHBhY2thZ2UgbWFuYWdlciBhbmQgaW5zdGFsbCAodGhpcyBwYXJ0IG11c3Qgc3VjY2VlZCkgLS0tCnNldCAtZQppZiBjb21tYW5kIC12IGFwdC1nZXQgPi9kZXYvbnVsbCAyPiYxOyAgIHRoZW4gUE09YXB0OyAgICBlY2hvICJQYWNrYWdlIG1hbmFnZXI6IGFwdCI7ICAgIGluc3RhbGxfYXB0CmVsaWYgY29tbWFuZCAtdiBkbmYgICA+L2Rldi9udWxsIDI+JjE7ICAgdGhlbiBQTT1kbmY7ICAgIGVjaG8gIlBhY2thZ2UgbWFuYWdlcjogZG5mIjsgICAgaW5zdGFsbF9kbmYKZWxpZiBjb21tYW5kIC12IHp5cHBlciA+L2Rldi9udWxsIDI+JjE7ICB0aGVuIFBNPXp5cHBlcjsgZWNobyAiUGFja2FnZSBtYW5hZ2VyOiB6eXBwZXIiOyBpbnN0YWxsX3p5cHBlcgplbGlmIGNvbW1hbmQgLXYgeXVtICAgPi9kZXYvbnVsbCAyPiYxOyAgIHRoZW4gUE09eXVtOyAgICBlY2hvICJQYWNrYWdlIG1hbmFnZXI6IHl1bSI7ICAgIGluc3RhbGxfeXVtCmVsaWYgY29tbWFuZCAtdiBwYWNtYW4gPi9kZXYvbnVsbCAyPiYxOyAgdGhlbiBQTT1wYWNtYW47IGVjaG8gIlBhY2thZ2UgbWFuYWdlcjogcGFjbWFuIjsgaW5zdGFsbF9wYWNtYW4KZWxzZQogICAgZWNobyAiVU5LTk9XTl9QS0dfTUFOQUdFUiIKICAgIGV4aXQgMjEKZmkKc2V0ICtlCgojIC0tLSBFdmVyeXRoaW5nIGJlbG93IGlzIGJlc3QtZWZmb3J0IGNvbmZpZ3VyYXRpb24gKG5ldmVyIGZhaWxzIHRoZSBpbnN0YWxsKSAtLS0KCiMgUG9pbnQgeHJkcCBhdCBwb3J0IDMzOTAgKHRoZSBwb3J0IHRoZSBwYW5lbCdzIFJlbW90ZSBEZXNrdG9wIGNvbm5lY3RzIHRvKS4KaWYgWyAtZiAvZXRjL3hyZHAveHJkcC5pbmkgXTsgdGhlbgogICAgc2VkIC1pICdzL15wb3J0PTMzODkvcG9ydD0zMzkwLycgL2V0Yy94cmRwL3hyZHAuaW5pCiAgICBncmVwIC1xICdecG9ydD0zMzkwJyAvZXRjL3hyZHAveHJkcC5pbmkgXAogICAgICB8fCBzZWQgLWkgJzAsL15cW0dsb2JhbHNcXS9zLy9bR2xvYmFsc11cbnBvcnQ9MzM5MC8nIC9ldGMveHJkcC94cmRwLmluaQpmaQoKIyBNYWtlIFhGQ0UgdGhlIGRlZmF1bHQgc2Vzc2lvbiBmb3IgY3VycmVudCBhbmQgZnV0dXJlIHVzZXJzLgpta2RpciAtcCAvZXRjL3NrZWwKZWNobyBzdGFydHhmY2U0ID4gL2V0Yy9za2VsLy54c2Vzc2lvbgpmb3IgaCBpbiAvcm9vdCAvaG9tZS8qOyBkbwogICAgWyAtZCAiJGgiIF0gfHwgY29udGludWUKICAgIGVjaG8gc3RhcnR4ZmNlNCA+ICIkaC8ueHNlc3Npb24iCiAgICBjaG93biAtLXJlZmVyZW5jZT0iJGgiICIkaC8ueHNlc3Npb24iIDI+L2Rldi9udWxsIHx8IHRydWUKZG9uZQoKIyBEZWJpYW4gd2FudHMgdGhlIHhyZHAgdXNlciBpbiBzc2wtY2VydDsgaGFybWxlc3MgaWYgYWJzZW50IGVsc2V3aGVyZS4KZ2V0ZW50IGdyb3VwIHNzbC1jZXJ0ID4vZGV2L251bGwgMj4mMSAmJiB1c2VybW9kIC1hRyBzc2wtY2VydCB4cmRwIDI+L2Rldi9udWxsIHx8IHRydWUKCiMgU3RhcnQgeHJkcCBub3c6IFN5c1Ygc2VydmljZSwgZWxzZSBzeXN0ZW1kLCBlbHNlIHRoZSBiaW5hcmllcyBkaXJlY3RseQojIChXU0wgZGlzdHJvcyBvZnRlbiBydW4gd2l0aG91dCBzeXN0ZW1kLCBzbyBmYWxsIGFsbCB0aGUgd2F5IHRocm91Z2gpLgppZiBzZXJ2aWNlIHhyZHAgc3RhcnQgPi9kZXYvbnVsbCAyPiYxOyB0aGVuCiAgICA6CmVsaWYgc3lzdGVtY3RsIHN0YXJ0IHhyZHAgPi9kZXYvbnVsbCAyPiYxOyB0aGVuCiAgICBzeXN0ZW1jdGwgc3RhcnQgeHJkcC1zZXNtYW4gPi9kZXYvbnVsbCAyPiYxCmVsc2UKICAgIHBncmVwIC14IHhyZHAtc2VzbWFuID4vZGV2L251bGwgMj4mMSB8fCAoL3Vzci9zYmluL3hyZHAtc2VzbWFuID4vZGV2L251bGwgMj4mMSAmKQogICAgc2xlZXAgMQogICAgcGdyZXAgLXggeHJkcCA+L2Rldi9udWxsIDI+JjEgfHwgKC91c3Ivc2Jpbi94cmRwID4vZGV2L251bGwgMj4mMSAmKQpmaQoKZWNobyBERVNLX1NFVFVQX0RPTkUKZXhpdCAwCg=="
+wsl -d !sel! -u root -- bash -c "echo '!DESK_B64!' | base64 -d | bash"
+if errorlevel 1 goto INSTALL_DESKTOP_FAIL
+echo.
+echo  Done. XFCE + xrdp installed and set to port 3390.
+echo  Opening the desktop now...
+timeout /t 2 /nobreak >nul
+goto OPEN_DESKTOP
+
+:INSTALL_DESKTOP_KEX
+echo.
+echo  Installing kali-win-kex on !sel! (this can take several minutes)...
+echo.
+wsl -d !sel! -u root -- bash -lc "set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y kali-win-kex"
+if errorlevel 1 goto INSTALL_DESKTOP_FAIL
+echo.
+echo  Done. Win-KeX installed.
+echo  Opening the desktop now...
+timeout /t 2 /nobreak >nul
+goto OPEN_DESKTOP
+
+:INSTALL_DESKTOP_FAIL
+echo.
+echo  The desktop install did not complete. Common causes:
+echo    - no internet connection inside the distro
+echo    - the package manager is locked by another update running now
+echo    - out of disk space
+echo    - Arch: xrdp is not in the official repos (it is in the AUR), so it
+echo      cannot be auto-installed - it prints XRDP_NOT_IN_REPO above
+echo    - an unrecognised package manager (not apt/dnf/zypper/yum/pacman) -
+echo      it prints UNKNOWN_PKG_MANAGER above
+echo  Open the distro as a Terminal to read the output above, then try again.
 pause >nul
 goto DISTRO_MENU
 

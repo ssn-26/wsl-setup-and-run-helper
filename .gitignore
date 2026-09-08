@@ -1,0 +1,2 @@
+# Saved accounts hold a DPAPI-encrypted password blob - never commit these.
+accounts/
