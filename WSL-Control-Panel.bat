@@ -23,11 +23,15 @@ goto CHECK_WSL
 
 
 :CHECK_WSL
-REM  Is a working, modern WSL present?  "wsl --version" prints the WSL version
-REM  and exits 0 only when the real (Store) WSL platform is installed. On a PC
-REM  where WSL was never set up, wsl.exe is just a stub and this call fails,
-REM  so we send the user into the guided one-time setup.
-where wsl >nul 2>&1 || goto SETUP_WSL
+REM  Is a working, modern WSL present?  The real WSL platform always installs
+REM  its files to "C:\Program Files\WSL", so we check for that file FIRST - it
+REM  is instant. We must NOT run wsl.exe before that: on a PC where WSL was
+REM  never set up, Windows' built-in wsl.exe does not fail - it waits at a
+REM  hidden "Press any key to install WSL" prompt for 60 seconds, and because
+REM  its output goes to nul, the panel sat on a blank black window.
+REM  Once the files exist, "wsl --version" is a quick health check (exits 0
+REM  when WSL really works). Either failure opens the guided one-time setup.
+if not exist "%ProgramFiles%\WSL\wsl.exe" goto SETUP_WSL
 wsl --version >nul 2>&1 || goto SETUP_WSL
 goto MAIN
 
@@ -91,14 +95,33 @@ del "%SETUPBAT%" >nul 2>&1
 
 echo.
 echo  Checking whether WSL is ready...
-wsl --version >nul 2>&1
-if not errorlevel 1 (
+REM  Same instant file check as CHECK_WSL (never run wsl.exe while WSL is
+REM  missing - it would sit on its hidden 60-second prompt). Turning on WSL's
+REM  Windows features for the first time needs a restart; Windows flags that
+REM  with the registry key "Component Based Servicing\RebootPending". While it
+REM  exists, distros cannot run yet, so we say RESTART instead of "ready".
+set "wslstate=READY"
+if not exist "%ProgramFiles%\WSL\wsl.exe" set "wslstate=MISSING"
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" >nul 2>&1 && set "wslstate=RESTART"
+if "!wslstate!"=="READY" (
+    wsl --version >nul 2>&1 || set "wslstate=RESTART"
+)
+if "!wslstate!"=="READY" (
     echo.
     echo  WSL is installed and ready. Continuing to the control panel,
     echo  where you can download a Linux distro with the [N] option.
     echo.
     pause >nul
     goto MAIN
+)
+if "!wslstate!"=="MISSING" (
+    echo.
+    echo  WSL did not get installed. This happens if you clicked NO on the
+    echo  Windows security prompt, or the administrator window showed an
+    echo  error, for example no internet. Run this panel again to retry.
+    echo.
+    pause >nul
+    goto END
 )
 echo.
 echo  WSL was set up but Windows needs a RESTART to finish enabling it.
@@ -122,13 +145,18 @@ wsl --list --verbose
 echo  ----------------------------------------------------------------
 echo.
 set count=0
-for /f "usebackq delims=" %%d in (`wsl --list --quiet`) do (
+REM  Collect the distro names, one per line. With NO distros (a fresh PC) WSL
+REM  prints a message instead ("...has no installed distributions..."), so we
+REM  hide its error output and skip any line containing a space - a real
+REM  distro name never has one.
+for /f "usebackq tokens=1* delims= " %%d in (`wsl --list --quiet 2^>nul`) do if "%%e"=="" (
     set /a count+=1
     set "distro[!count!]=%%d"
 )
 echo  Just press ENTER to quick-open your desktop (wakes it first), or:
 echo.
 echo  Pick a distro by NUMBER to manage it (open / close / delete):
+if !count!==0 echo     (none yet - use [N] below to download your first distro)
 for /l %%i in (1,1,!count!) do echo     [%%i] !distro[%%i]!
 echo.
 echo     [C] Close a running distro   - stops one distro, frees its RAM

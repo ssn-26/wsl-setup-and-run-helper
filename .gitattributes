@@ -1,0 +1,5 @@
+# Keep Windows batch files byte-for-byte, with their Windows (CRLF) line
+# endings - in this repo AND in GitHub downloads. cmd.exe can fail to find
+# goto/call labels in .bat files that use Unix (LF) line endings.
+# "-text" tells Git never to convert line endings for these files.
+*.bat -text
