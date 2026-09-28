@@ -708,7 +708,11 @@ REM  Launch Win-KeX in a VISIBLE console from the Linux home. cd ~ avoids the
 REM  known "started from a Windows dir" passwd-file failure, and a real console
 REM  gives the first-run vncpasswd prompt an interactive terminal - launching it
 REM  hidden makes that prompt block forever (that was the "no window" bug).
-start "Kali Win-KeX (!sel!)" wsl -d !sel! !KEXUSER! -- bash -lc "cd ~ && unset WAYLAND_DISPLAY && kex --win; echo; read -rp 'Desktop is in its own window. Press Enter to close this console. '"
+REM  systemctl set-environment: XFCE starts some helpers (e.g. the notification
+REM  daemon) through systemd, which does not see the desktop's settings. Without
+REM  DISPLAY=:1 + GDK_BACKEND=x11 they fall back to WSLg and show an "Xfce
+REM  Notify Daemon ... Wayland compositor" error on the Windows desktop.
+start "Kali Win-KeX (!sel!)" wsl -d !sel! !KEXUSER! -- bash -lc "cd ~ && unset WAYLAND_DISPLAY && { systemctl --user set-environment DISPLAY=:1 GDK_BACKEND=x11 XDG_SESSION_TYPE=x11 2>/dev/null; kex --win; }; echo; read -rp 'Desktop is in its own window. Press Enter to close this console. '"
 echo.
 echo  Launching Win-KeX - the desktop appears in its own window
 echo  (first launch takes a few extra seconds, after you set the password).
