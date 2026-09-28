@@ -75,6 +75,8 @@ My try to learn bash through a real-world working project.
    `Debian`, `archlinux`, `kali-linux`) and press Enter for the default folder.
 3. **Create your login**: pick the distro by number, then **`[O]` Open**,
    **`[A]` Add an account**, and answer **Y**. Choose a username and password.
+   The panel then shows each step while it creates the account (on Arch,
+   installing `sudo` takes a minute or two).
 4. **Open the desktop**: pick the distro, choose your account, then **`[1]`
    Desktop**. The first time, the panel says there's no desktop yet. Press
    **`[I]`** to install it. This takes 5–20 minutes (Arch is the slowest,
@@ -136,8 +138,11 @@ folder is fully portable.
 | Download fails with *"The connection with the server was reset"* | The distro's server dropped the connection (Debian's does this often) | Answer **Y** to the **resumable download**. It continues after each drop and checks the file's SHA-256 before installing |
 | *"...is running its own desktop on port 3390"* | All WSL2 distros share one network, and only one xrdp can use port 3390 | Answer **Y** to close the other distro, or close it with `[C]` first |
 | *"The Kali desktop (Win-KeX) cannot run as root"* | A freshly downloaded Kali has no normal user yet | Open, `[A]`, answer **Y**, then open the Desktop with that account |
+| Kali: TigerVNC says *"Failed to connect to localhost:1 ... actively refused (10061)"* when opening | A minimal Kali got Win-KeX without the XFCE desktop it runs (its log says `startxfce4: not found`), so the server starts and exits at once | The current panel detects this and offers `[I]` Install, which adds `kali-desktop-xfce`. Or in a Terminal: `sudo apt install -y kali-desktop-xfce dbus-x11` |
+| Kali: a TigerVNC connection error pops up when you close/shut down the distro | Older panels stopped Win-KeX as the distro's default user (often root), which cannot stop your account's desktop, so shutdown killed it under the viewer | Fixed in the current panel: it stops Win-KeX as the account that started it |
 | Desktop install ends with `AUR_BUILD_FAILED` (Arch) | Building xrdp from the AUR failed | Open a Terminal to read the error above it. Usually no internet, or a full disk |
-| Remote Desktop window is black | The XFCE session didn't start for that user | Log in with a user made through `[A]` → **Y** (it sets up the XFCE session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` contain `exec startxfce4` |
+| Remote Desktop is black **and XFCE's panel/dock appears on the Windows desktop** | WSL links **WSLg** (its bridge that shows Linux windows on Windows) into every user's runtime folder, and XFCE's toolkit prefers it over xrdp's screen | Fixed in the current panel: the session files force X11. For a desktop set up with an older panel, re-add the account with Open, `[A]`, **Y** (this rewrites the session files), log out of the old session, and open the Desktop again |
+| Remote Desktop window is black (nothing on the Windows desktop either) | The XFCE session didn't start for that user | Log in with a user made through `[A]` → **Y** (it sets up the XFCE session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` end with `exec startxfce4` |
 | Desktop closes a few seconds after opening | WSL idle shutdown | Open it through the panel. Its keep-alive holds WSL up while XFCE runs |
 | WSL itself won't start | Outdated or broken WSL | `[U]` Update / repair WSL, then restart Windows |
 
@@ -173,8 +178,12 @@ folder is fully portable.
 - **`<nul`** after `wsl` commands stops them from reading the keyboard, so they
   can never swallow the next thing you type.
 - **Arch Linux:** `xrdp` and `xorgxrdp` are built from the AUR by a temporary
-  non-root user (removed afterwards). The installer also sets up pacman's
+  non-root user (removed afterwards, along with the build-only tools and the
+  `-debug` packages makepkg creates). The installer also sets up pacman's
   signing keys, which a brand-new Arch doesn't have yet.
+- **X11, not WSLg:** the desktop session files unset `WAYLAND_DISPLAY` and set
+  `GDK_BACKEND=x11`, so XFCE draws inside Remote Desktop instead of on the
+  Windows desktop through WSLg.
 
 ---
 
