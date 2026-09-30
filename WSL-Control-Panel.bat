@@ -353,11 +353,33 @@ if defined auser[!asel!] (
         set "acctuser=!auser[%%c]!"
         set "acctblob=!ablob[%%c]!"
     )
-    goto OPEN_METHOD
+    goto CHECK_ACCOUNT
 )
 echo  Invalid choice. Press any key.
 pause >nul
 goto OPEN
+
+
+:CHECK_ACCOUNT
+REM  A saved account is only a remembered login - the Linux user itself lives
+REM  INSIDE the distro. If the distro was deleted and downloaded again, the saved
+REM  login still shows up here but the user is gone, and every open fails with
+REM  WSL's "User not found" (the Win-KeX console flashes and closes, so no desktop).
+REM  "id -u <name>" (run as root) exits 0 only if that user exists.
+wsl -d !sel! -u root -e id -u !acctuser! >nul 2>&1 <nul
+if "!errorlevel!"=="0" goto OPEN_METHOD
+echo.
+echo  The saved account "!acctuser!" does NOT exist inside !sel!.
+echo  (Usually because !sel! was deleted and downloaded again - a fresh
+echo  distro only has "root".) The panel can create it again now.
+echo.
+set "fix="
+set /p "fix=Create Linux user "!acctuser!" inside !sel! now? (Y/N) [Y]: "
+if /i "!fix!"=="N" goto OPEN
+set "newuser=!acctuser!"
+set "MKUSER=1"
+echo.
+goto ADD_ACCOUNT_PASSWORD
 
 
 :ADD_ACCOUNT
@@ -389,6 +411,7 @@ set /p "mk=Create the Linux user too? (Y/N) [Y]: "
 if not defined mk set "MKUSER=1"
 if /i "!mk!"=="Y" set "MKUSER=1"
 echo.
+:ADD_ACCOUNT_PASSWORD
 if "!MKUSER!"=="1" (
     echo  Enter a password for "!newuser!" - you will type it twice.
     echo  This becomes the Linux login password AND is saved here encrypted.
