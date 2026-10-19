@@ -103,6 +103,30 @@ function Read-Secret([string]$prompt) {
     return [System.Net.NetworkCredential]::new('', $s).Password
 }
 
+# Asks for a folder. ENTER = the default, B = go back ($null). Re-asks until the
+# answer is a full path, so a stray "yes" can never become a folder name.
+function Read-Folder([string]$what, [string]$default) {
+    while ($true) {
+        Write-Host ''
+        Write-Host " $what" -ForegroundColor Yellow
+        Write-Host "   Press ENTER to use:  $default"
+        Write-Host '   Or type another FULL folder path (e.g. E:\Linux), or B to go back.'
+        $v = (Read-Line ' Folder').Trim('"', "'")
+        if ($v -eq '') { return $default }
+        if ($v -ieq 'b') { return $null }
+        if ($v -match '^(y|yes|n|no)$') {
+            Write-Host ' That is a yes/no word, not a folder. Press ENTER for the default, or type a full path.' -ForegroundColor Red
+            continue
+        }
+        if ($v -notmatch '^([A-Za-z]:\\|\\\\)') {
+            Write-Host ' Please type a FULL path that starts with a drive letter, e.g. E:\Linux' -ForegroundColor Red
+            continue
+        }
+        if ($v.Length -gt 3) { $v = $v.TrimEnd('\') }
+        return $v
+    }
+}
+
 function Test-IsAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -997,9 +1021,8 @@ function Export-DistroMenu {
     Write-Host '   [2] .vhdx - fastest, an exact copy of the disk'
     $ext = $(if ((Read-Line ' Format [1]') -eq '2') { 'vhdx' } else { 'tar' })
 
-    $dir = Read-Line " Backup folder [$($Global:Config.BackupBase)]"
-    if (-not $dir) { $dir = $Global:Config.BackupBase }
-    $dir = $dir.Trim('"').TrimEnd('\')
+    $dir = Read-Folder 'Where should the backup be saved?' $Global:Config.BackupBase
+    if ($null -eq $dir) { return }
     $stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
     $file = Join-Path $dir "${name}_$stamp.$ext"
 
@@ -1073,9 +1096,8 @@ function Import-DistroMenu {
         Pause-Console; return
     }
 
-    $loc = Join-Path $Global:Config.WslBase $name
-    $in = (Read-Line " Install folder [$loc]").Trim('"')
-    if ($in) { $loc = $in }
+    $loc = Read-Folder 'Where should the restored distro be installed?' (Join-Path $Global:Config.WslBase $name)
+    if ($null -eq $loc) { return }
     if (Test-Path -LiteralPath (Join-Path $loc 'ext4.vhdx')) {
         Write-Host " $loc already holds a distro disk (ext4.vhdx). Pick another folder." -ForegroundColor Red
         Pause-Console; return
@@ -1121,9 +1143,9 @@ function Download-DistroMenu {
     if (-not $name -or $name.ToUpper() -eq 'B') { return }
     if ($name -notmatch '^[A-Za-z0-9._-]+$') { Write-Host ' That is not a valid distro name.' -ForegroundColor Red; Pause-Console; return }
 
-    $base = Read-Line " Install folder [$($Global:Config.WslBase)]"
-    if (-not $base) { $base = $Global:Config.WslBase }
-    $loc = Join-Path $base.Trim('"') $name
+    $base = Read-Folder "Where should $name be installed? (its own sub-folder is created inside)" $Global:Config.WslBase
+    if ($null -eq $base) { return }
+    $loc = Join-Path $base $name
     if (-not (Test-Path -LiteralPath $loc)) { New-Item -ItemType Directory -Path $loc -Force | Out-Null }
 
     Write-Host "`n Installing $name into $loc - this downloads several hundred MB, please wait..." -ForegroundColor Cyan
