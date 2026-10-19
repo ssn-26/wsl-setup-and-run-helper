@@ -25,20 +25,28 @@ My try to learn bash through a real-world working project.
 
 **Everyday use: a control panel for your distros**
 
+The main screen keeps the everyday actions:
+
 | Key | Option | What happens behind the scenes |
 |---|---|---|
-| *Enter* | Quick-open | Wakes your default distro and opens its desktop with its first saved account |
+| *Enter* | Open the desktop | Wakes your default distro and opens its desktop with its first saved account |
 | number | Manage a distro | Open (Desktop / Terminal), Close, Accounts, xrdp port, Compact disk, systemd on/off, or Delete it |
-| `C` | Close a running distro | `wsl --terminate`, which frees its RAM |
-| `S` | Shut down all WSL | `wsl --shutdown`, which frees the whole WSL VM |
 | `N` | Download a new distro | `wsl --install` from Microsoft's official list, with a resumable fallback |
 | `E` | Back up a distro | `wsl --export` saves everything to one `.tar` (or faster `.vhdx`) file |
 | `R` | Restore a backup | `wsl --import` brings a backup back, on this PC or a new one |
+| `M` | More tools | The less-used tools below |
+| `Q` | Quit | Closes the panel; distros keep running |
+
+**`[M]` More tools** (their letters also work straight from the main screen):
+
+| Key | Option | What happens behind the scenes |
+|---|---|---|
+| `C` | Close a running distro | `wsl --terminate`, which frees its RAM |
+| `S` | Shut down all WSL | `wsl --shutdown`, which frees the whole WSL VM |
 | `K` | Compact a disk | Hands unused `ext4.vhdx` space back to Windows (admin, via diskpart) |
-| `T` | Memory / CPU limits | Edits `.wslconfig` (a copy of the old file is kept as `.wslconfig.bak`) |
+| `T` | Memory / CPU limits | Sets `memory`, `processors` and `swap` in `.wslconfig`; your other settings stay (a copy is kept as `.wslconfig.bak`) |
 | `D` | Data folders | Choose where new Linux disks and backups are saved |
 | `U` | Update / repair WSL | `wsl --update` (admin) |
-| `Q` | Quit | Closes the panel; distros keep running |
 
 - **Desktop or Terminal.** Kali opens in its own Win-KeX window. Every other
   distro opens in Windows Remote Desktop (xrdp, default port **3390** so it never
@@ -59,6 +67,15 @@ My try to learn bash through a real-world working project.
   means no setting up again.
 - **Keep-alive.** WSL normally shuts an idle distro down seconds after the
   launcher closes. The panel keeps it running while the desktop is in use.
+- **Docker / Rancher Desktop distros are left alone.** `docker-desktop` and
+  `rancher-desktop` (and their `-data` disks) are hidden from the menus, but
+  the panel still sees them running, so it never shuts WSL down under them.
+- **Easy to read.** Each colour means one thing: cyan for the keys to press,
+  green for running / done, yellow for warnings, red for errors, grey for
+  explanations. Running distros get a filled dot and stopped ones a hollow dot.
+  After a quick action the result appears as one line at the top of the next
+  screen instead of a "Press any key" stop. In Windows Terminal you get proper
+  symbols; the old console window shows plain `*` / `-` instead.
 - **Every menu explains itself.** Each option shows in one line what it does
   and which `wsl` command runs, so you learn the tool as you use it.
 
@@ -80,14 +97,16 @@ My try to learn bash through a real-world working project.
    On a PC without WSL, allow the administrator prompt and restart if asked.
 2. **`[N]` Download**: type a name from the list (e.g. `Ubuntu-24.04`,
    `Debian`, `archlinux`, `kali-linux`) and press Enter for the default folder.
-3. **Create your login**: pick the distro by number, then **`[A]` Accounts**,
-   **`[A]` Add an account**, and answer **Y**. Choose a username and password.
-   The panel then shows each step while it creates the account (on Arch,
-   installing `sudo` takes a minute or two).
-4. **Open the desktop**: pick the distro, choose your account, then **`[1]`
-   Desktop**. The first time, the panel says there's no desktop yet. Press
-   **`[I]`** to install it. This takes 5–20 minutes (Arch is the slowest,
-   because it compiles xrdp). Remote Desktop then opens and logs you in.
+3. **Create your login** right away: when the download finishes, the panel
+   asks *"Create your Linux user now?"*. Press Enter for Yes, choose a username
+   (it suggests your Windows name) and a password. The panel shows each step
+   while it creates the account (on Arch, installing `sudo` takes a minute or
+   two). Skipped it? The panel asks again the first time you open the desktop.
+4. **Open the desktop**: press **Enter** on the main screen (or pick the distro,
+   then **`[O]` Open**, **`[1]` Desktop**). The first time, the panel says there's
+   no desktop yet. Press **`[I]`** to install it. This takes 5–20 minutes (Arch
+   is the slowest, because it compiles xrdp). Remote Desktop then opens and logs
+   you in.
 5. **Back it up** with **`[E]`** once it's set up the way you like.
 
 ## Moving to a new PC
@@ -128,12 +147,15 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 ```
 WSL-Control-Panel.bat     <- double-click this
 README.md
-bash files\               the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
+LICENSE                   MIT licence
+bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
+                          + xsession, the desktop session file both installers write
 powershell\               the panel itself (WSL-Control-Panel.ps1)
 data\                     everything the panel creates (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
   backups\                backups made with [E]
   linux\                  one folder per distro, holding its disk (ext4.vhdx)
+  logs\                   the full output of each desktop install
 ```
 
 The `data` folders are created the first time they are needed. The Linux disks
@@ -159,11 +181,11 @@ working (saved passwords only decrypt on the same Windows login, though).
 |---|---|---|
 | Download fails with *"The connection with the server was reset"* | The distro's server dropped the connection (Debian's does this often) | Answer **Y** to the **resumable download**. It continues after each drop and checks the file's SHA-256 before installing |
 | *"...is running its own desktop on port 3390"* | All WSL2 distros share one network, so two xrdp servers cannot use the same port | Choose **[1]** to give this distro its own free port (both desktops stay open), or **[2]** to close the other one |
-| *"The Kali desktop (Win-KeX) cannot run as root"* | A freshly downloaded Kali has no normal user yet | Accounts, `[A]`, answer **Y**, then open the Desktop with that account |
+| *"The Kali desktop (Win-KeX) cannot run as root"* | A freshly downloaded Kali has no normal user yet, and the offer to create one was skipped | Open the Desktop again and answer **Y** when it offers to create your user |
 | Kali: TigerVNC says *"Failed to connect to localhost:1 ... actively refused (10061)"* when opening | A minimal Kali got Win-KeX without the XFCE desktop it runs (its log says `startxfce4: not found`), so the server starts and exits at once | The current panel detects this and offers `[I]` Install, which adds `kali-desktop-xfce`. Or in a Terminal: `sudo apt install -y kali-desktop-xfce dbus-x11` |
 | Kali: a TigerVNC connection error pops up when you close the distro from the panel | Older panels stopped Win-KeX as the distro's default user (often root), which cannot stop your account's desktop, so shutdown killed it under the viewer | Fixed in the current panel: it stops Win-KeX as the account that started it |
 | Kali: *"Xfce Notify Daemon – Unable to start notification daemon … Wayland compositor"* appears on the Windows desktop (e.g. when logging out) | XFCE starts its notification helper through systemd, which didn't know the desktop's display, so it fell back to **WSLg** | Fixed in the current panel: it tells systemd `DISPLAY=:1` and `GDK_BACKEND=x11` when starting Win-KeX. Close the dialog; reopen the desktop through the panel |
-| Desktop install ends with `AUR_BUILD_FAILED` (Arch) | Building xrdp from the AUR failed | Open a Terminal to read the error above it. Usually no internet, or a full disk |
+| Desktop install ends with `AUR_BUILD_FAILED` (Arch) | Building xrdp from the AUR failed | Read the error in the install log the panel names (in `data\logs`). Usually no internet, or a full disk |
 | Remote Desktop is black **and XFCE's panel/dock appears on the Windows desktop** | WSL links **WSLg** (its bridge that shows Linux windows on Windows) into every user's runtime folder, and XFCE's toolkit prefers it over xrdp's screen | Fixed in the current panel: the session files force X11. For a desktop set up with an older panel, re-add the account with Accounts, `[A]`, **Y** (this rewrites the session files), log out of the old session, and open the Desktop again |
 | Remote Desktop window is black (nothing on the Windows desktop either) | The XFCE session didn't start for that user | Log in with a user made through `[A]` → **Y** (it sets up the XFCE session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` end with `exec startxfce4` |
 | Desktop closes a few seconds after opening | WSL idle shutdown | Open it through the panel. Its keep-alive holds WSL up while XFCE runs |
@@ -184,6 +206,11 @@ working (saved passwords only decrypt on the same Windows login, though).
   refuses to overwrite a distro that already exists.
 - The resumable download only installs a file whose SHA-256 matches
   Microsoft's official WSL distro list.
+- The steps that need administrator rights (first-time setup, disk compaction)
+  are passed straight to the elevated window, never through a script file in
+  `%TEMP%` that another program could change first.
+- Changing the xrdp port refuses 3389 (Windows' own Remote Desktop), a port
+  another distro is set to, and a port something on Windows already listens on.
 
 ---
 
@@ -191,12 +218,19 @@ working (saved passwords only decrypt on the same Windows login, though).
 
 - **Three parts.** `WSL-Control-Panel.bat` only starts PowerShell. All the logic
   is in `powershell\WSL-Control-Panel.ps1`. The Linux-side scripts are ordinary readable
-  files in `bash files\` (`install-desktop.sh`, `create-user.sh`,
+  files in `bash\` (`install-desktop.sh`, `create-user.sh`,
   `keepalive.sh`); the panel sends them into the distro as **base64** so no
   layer of Windows/bash quoting can mangle them.
 - **Safe quoting.** The panel never builds one long command string. It passes each
   argument separately and quotes it the way Windows expects, and it validates
   Linux usernames (`^[a-z_][a-z0-9_-]*$`) before using them.
+- **Any Windows language.** The distro list is read from the registry plus
+  `wsl --list --running --quiet` (bare names), not from `wsl -l -v`, whose
+  table is translated on non-English Windows.
+- **Kali is detected from `/etc/os-release`**, so a Kali restored under another
+  name still opens with Win-KeX.
+- **Accounts on any distro.** Creating an account installs `sudo` if the distro
+  lacks it and creates a `wheel` group if there is no admin group at all.
 - **`wsl -e`** runs a Linux program directly, without an extra shell.
 - **Passwords** go to `chpasswd` over stdin, never on a command line or disk.
 - **Negative exit codes:** WSL reports its own errors as negative numbers, so
@@ -216,6 +250,13 @@ working (saved passwords only decrypt on the same Windows login, though).
 - Keep `WSL-Control-Panel.ps1` plain ASCII and the `.bat` with CRLF line
   endings. Check the script parses with Windows PowerShell 5.1 (`powershell.exe`, which
   is what the launcher uses), not PowerShell 7, which accepts syntax 5.1 rejects.
+- **Checks on GitHub.** Every push runs `.github/workflows/checks.yml`: it
+  parses the panel with Windows PowerShell 5.1, checks it is plain ASCII and that
+  the `.bat` is CRLF, runs `shellcheck` on `bash\`, and lists PSScriptAnalyzer's
+  findings (report only).
+- **Version.** The panel's header shows its version (`$PANEL_VERSION` at the
+  top of the script). Raise it when you share a change, so a bug report can say
+  which version it came from.
 
 ---
 
@@ -223,3 +264,11 @@ working (saved passwords only decrypt on the same Windows login, though).
 
 - Desktops are XFCE-based: Kali via Win-KeX, every other distro via xrdp.
 - Compacting a disk needs administrator rights and stops all of WSL.
+
+---
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). You may use, change and share this project,
+including commercially, as long as the copyright notice stays with it. It comes
+with no warranty.

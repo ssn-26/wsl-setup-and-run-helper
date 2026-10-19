@@ -6,6 +6,8 @@
 
 # Shell scripts are run by bash inside WSL, so they must always be LF.
 *.sh text eol=lf
+# Everything in bash/ goes into Linux (e.g. the xsession file), so LF too.
+bash/** text eol=lf
 
 # PowerShell script: LF on disk. Keep it plain ASCII - Windows PowerShell 5.1
 # reads a BOM-less file as ANSI, so non-ASCII characters could break parsing.
