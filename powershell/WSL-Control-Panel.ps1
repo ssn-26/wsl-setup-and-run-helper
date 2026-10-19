@@ -243,22 +243,38 @@ function Invoke-WslScript([string]$distro, [string]$user, [string]$script, [stri
 
 function Test-WslFiles { return (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'WSL\wsl.exe')) }
 
+# Distros that belong to another app (Docker / Rancher Desktop). They still
+# count as running (so the WSL VM is not shut down under them), but the menus
+# hide them: they have no desktop, no users and their own disk layout.
+function Test-SystemDistro([string]$name) { return ($name -match '^(docker-desktop|rancher-desktop)(-data)?$') }
+
 function Get-WslDistros {
     # Never run wsl.exe before WSL is installed (see Test-WslFiles).
     if (-not (Test-WslFiles)) { return @() }
-    $res = Invoke-WslQuiet @('-l', '-v')
+    # The names come from the registry, not "wsl -l -v": that table is translated
+    # on non-English Windows (e.g. "Wird ausgefuehrt"), so it cannot be parsed.
+    # "--list --running --quiet" prints bare names only, in every language.
+    $lxss = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+    $defaultId = ''
+    try { $defaultId = [string](Get-ItemProperty -Path $lxss -ErrorAction Stop).DefaultDistribution } catch { }
+    $running = @{}
+    $res = Invoke-WslQuiet @('--list', '--running', '--quiet')
+    if ($res.ExitCode -eq 0) { foreach ($l in $res.Output) { $running[$l.Trim()] = $true } }
+
     $distros = @()
-    foreach ($line in $res.Output) {
-        $isDefault = $false
-        if ($line.StartsWith('*')) { $isDefault = $true; $line = $line.Substring(1).Trim() }
-        $parts = @(-split $line)
-        # Real rows look like: NAME  Running|Stopped|...  1|2. This skips the
-        # header and the "no installed distributions" message.
-        if ($parts.Count -ge 3 -and $parts[1] -match '^(Running|Stopped|Installing|Uninstalling|Converting)$' -and $parts[2] -match '^[12]$') {
-            $distros += [PSCustomObject]@{ Name = $parts[0]; State = $parts[1]; Version = $parts[2]; IsDefault = $isDefault }
+    foreach ($k in @(Get-ChildItem -Path $lxss -ErrorAction SilentlyContinue)) {
+        $p = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
+        if (-not $p -or -not $p.DistributionName) { continue }
+        $name = [string]$p.DistributionName
+        $distros += [PSCustomObject]@{
+            Name      = $name
+            State     = $(if ($running.ContainsKey($name)) { 'Running' } else { 'Stopped' })
+            Version   = $(if ($p.Version -eq 1) { '1' } else { '2' })
+            IsDefault = ($k.PSChildName -eq $defaultId)
+            IsSystem  = (Test-SystemDistro $name)
         }
     }
-    return $distros
+    return @($distros | Sort-Object Name)
 }
 
 function Get-RunningDistros {
@@ -292,11 +308,20 @@ function Stop-Kex([string]$distro) {
     $has = Invoke-WslQuiet @('-d', $distro, '--', 'bash', '-lc', 'command -v kex >/dev/null 2>&1')
     if ($has.ExitCode -ne 0) { return }
     Write-Host " Stopping Win-KeX on $distro ..." -ForegroundColor DarkGray
-    $cmd = 'for u in $(ps -o user= -C Xtigervnc | sort -u); do [ $u = root ] || su - $u -c ''cd ~ && kex --stop'' >/dev/null 2>&1; done; true'
+    # Look owners up by uid: "ps -o user=" cuts names longer than 8 characters
+    # short (e.g. "shreyasn+"), and su would then fail for them.
+    $cmd = 'for id in $(ps -o uid= -C Xtigervnc | sort -u); do [ "$id" = 0 ] && continue; u=$(getent passwd "$id" | cut -d: -f1); [ -n "$u" ] && su - "$u" -c ''cd ~ && kex --stop'' >/dev/null 2>&1; done; true'
     Invoke-WslQuiet @('-d', $distro, '-u', 'root', '-e', 'sh', '-c', $cmd) | Out-Null
 }
 
-function Stop-KexAll { foreach ($r in (Get-RunningDistros)) { Stop-Kex $r } }
+function Stop-KexAll { foreach ($r in (Get-RunningDistros)) { if (-not (Test-SystemDistro $r)) { Stop-Kex $r } } }
+
+# Kali is recognised from /etc/os-release, so a Kali restored or installed
+# under another name still gets Win-KeX.
+function Test-KaliDistro([string]$distro) {
+    $cmd = '. /etc/os-release 2>/dev/null; [ "$ID" = kali ]'
+    return ((Invoke-WslQuiet @('-d', $distro, '-e', 'sh', '-c', $cmd)).ExitCode -eq 0)
+}
 
 function Stop-Distro([string]$distro) {
     Stop-Kex $distro
@@ -602,9 +627,9 @@ function Start-KeepAlive([string]$distro) {
 }
 
 # Installs the XFCE desktop (+ xrdp, or Kali's Win-KeX). Returns $true on success.
-function Install-DesktopInDistro([string]$distro, [int]$port) {
+function Install-DesktopInDistro([string]$distro, [int]$port, [bool]$isKali) {
     Show-Header "Installing a desktop for: $distro"
-    if ($distro -like '*kali*') {
+    if ($isKali) {
         Write-Host " Installing Kali's XFCE desktop + Win-KeX (about 1-2 GB - this can take a while)..." -ForegroundColor Yellow
         $cmd = 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y kali-desktop-xfce dbus-x11 kali-win-kex'
         $rc = Invoke-WslInline @('-d', $distro, '-u', 'root', '--', 'bash', '-lc', $cmd)
@@ -689,7 +714,8 @@ function Start-DistroDesktop([string]$distro, $account, [bool]$afterInstall = $f
     if ($hasKex -and $hasXfce) { Start-KexDesktop $distro $account; return }
 
     $port = Get-DistroPort $distro
-    $needInstall = ($distro -like '*kali*')
+    $isKali = Test-KaliDistro $distro
+    $needInstall = $isKali
     if (-not $needInstall) {
         # All WSL2 distros share ONE network: if another running distro's xrdp
         # already holds this port, Remote Desktop would open THAT desktop instead.
@@ -768,7 +794,7 @@ fi
     $nd = (Read-Line ' Enter your choice').ToUpper()
     if ($nd -eq 'T') { Start-DistroTerminal $distro $account }
     elseif ($nd -eq 'I') {
-        if (Install-DesktopInDistro $distro $port) { Start-DistroDesktop $distro $account $true }
+        if (Install-DesktopInDistro $distro $port $isKali) { Start-DistroDesktop $distro $account $true }
     }
 }
 
@@ -1006,7 +1032,7 @@ function Show-DistroMenu([string]$distro) {
 # ------------------------------------------------------------------------------
 function Export-DistroMenu {
     Show-Header 'Back up a distro (wsl --export)'
-    $distros = @(Get-WslDistros)
+    $distros = @(Get-WslDistros | Where-Object { -not $_.IsSystem })
     if ($distros.Count -eq 0) { Write-Host ' No distros installed - nothing to back up.' -ForegroundColor DarkGray; Pause-Console; return }
 
     Write-Host ' Which distro should be backed up?' -ForegroundColor Yellow
@@ -1311,7 +1337,9 @@ function Show-DataFoldersMenu {
 # ------------------------------------------------------------------------------
 function Show-MainMenu {
     while ($true) {
-        $distros = @(Get-WslDistros)
+        $all = @(Get-WslDistros)
+        $distros = @($all | Where-Object { -not $_.IsSystem })
+        $hidden = @($all | Where-Object { $_.IsSystem })
         Show-Header 'Dashboard'
         Write-Host ' Installed distros:' -ForegroundColor Yellow
         Write-Host '----------------------------------------------------------------' -ForegroundColor DarkGray
@@ -1325,6 +1353,9 @@ function Show-MainMenu {
             Write-Host ("  [{0}] {1} {2} " -f ($i + 1), $(if ($d.IsDefault) { '*' } else { ' ' }), $d.Name.PadRight(18)) -NoNewline
             Write-Host ("[{0}]" -f $d.State.ToUpper()).PadRight(12) -ForegroundColor $color -NoNewline
             Write-Host ("WSL{0}   {1} GB" -f $d.Version, $vhd.SizeGB) -ForegroundColor DarkGray
+        }
+        if ($hidden.Count -gt 0) {
+            Write-Host " (hidden: $(($hidden | ForEach-Object { $_.Name }) -join ', ') - they belong to Docker/Rancher Desktop)" -ForegroundColor DarkGray
         }
         Write-Host '----------------------------------------------------------------' -ForegroundColor DarkGray
         Write-Host ''

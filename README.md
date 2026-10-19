@@ -59,6 +59,9 @@ My try to learn bash through a real-world working project.
   means no setting up again.
 - **Keep-alive.** WSL normally shuts an idle distro down seconds after the
   launcher closes. The panel keeps it running while the desktop is in use.
+- **Docker / Rancher Desktop distros are left alone.** `docker-desktop` and
+  `rancher-desktop` (and their `-data` disks) are hidden from the menus, but
+  the panel still sees them running, so it never shuts WSL down under them.
 - **Every menu explains itself.** Each option shows in one line what it does
   and which `wsl` command runs, so you learn the tool as you use it.
 
@@ -197,6 +200,13 @@ working (saved passwords only decrypt on the same Windows login, though).
 - **Safe quoting.** The panel never builds one long command string. It passes each
   argument separately and quotes it the way Windows expects, and it validates
   Linux usernames (`^[a-z_][a-z0-9_-]*$`) before using them.
+- **Any Windows language.** The distro list is read from the registry plus
+  `wsl --list --running --quiet` (bare names), not from `wsl -l -v`, whose
+  table is translated on non-English Windows.
+- **Kali is detected from `/etc/os-release`**, so a Kali restored under another
+  name still opens with Win-KeX.
+- **Accounts on any distro.** Creating an account installs `sudo` if the distro
+  lacks it and creates a `wheel` group if there is no admin group at all.
 - **`wsl -e`** runs a Linux program directly, without an extra shell.
 - **Passwords** go to `chpasswd` over stdin, never on a command line or disk.
 - **Negative exit codes:** WSL reports its own errors as negative numbers, so
