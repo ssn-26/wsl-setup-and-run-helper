@@ -127,6 +127,29 @@ function Read-Folder([string]$what, [string]$default) {
     }
 }
 
+# Asks a yes/no question. ENTER = $default; Y/YES/N/NO in any case; anything
+# else asks again, so a typo never counts as an answer.
+function Read-YesNo([string]$question, [bool]$default) {
+    $hint = $(if ($default) { '(Y/N) [Y]' } else { '(Y/N) [N]' })
+    while ($true) {
+        $v = (Read-Line " $question $hint").ToUpper()
+        if ($v -eq '') { return $default }
+        if ($v -eq 'Y' -or $v -eq 'YES') { return $true }
+        if ($v -eq 'N' -or $v -eq 'NO') { return $false }
+        Write-Host ' Please answer Y or N.' -ForegroundColor Red
+    }
+}
+
+# Turns a typed list number (1..count) into a 0-based index, or -1 if the
+# answer is not a number in that range.
+function Get-ListIndex([string]$answer, [int]$count) {
+    if ($answer -match '^\d{1,6}$' -and [int]$answer -ge 1 -and [int]$answer -le $count) { return [int]$answer - 1 }
+    return -1
+}
+
+# Distro names as wsl.exe accepts them (used by Download and Restore).
+function Test-DistroName([string]$name) { return ($name -match '^[A-Za-z0-9._-]+$') }
+
 function Test-IsAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -358,8 +381,7 @@ function Confirm-WslReady {
     Write-Host '   3. If Windows says a RESTART is required, restart your PC, then'
     Write-Host '      run this panel again.'
     Write-Host ''
-    $go = Read-Line ' Set up WSL now? (Y/N) [Y]'
-    if ($go -and $go.ToUpper() -ne 'Y') { return $false }
+    if (-not (Read-YesNo 'Set up WSL now?' $true)) { return $false }
 
     $setup = @'
 Write-Host '================================================================' -ForegroundColor Cyan
@@ -549,8 +571,7 @@ function Confirm-AccountExists([string]$distro, $account) {
     Write-Host ' (Usually because the distro was deleted and downloaded again - a fresh'
     Write-Host '  distro only has "root".) The panel can create it again now.'
     Write-Host ''
-    $fix = Read-Line " Create Linux user '$($account.Username)' inside $distro now? (Y/N) [Y]"
-    if ($fix.ToUpper() -eq 'N') { return $false }
+    if (-not (Read-YesNo "Create Linux user '$($account.Username)' inside $distro now?" $true)) { return $false }
     return (Add-AccountInteractive $distro $account.Username $true)
 }
 
@@ -582,8 +603,8 @@ function Show-AccountMenu([string]$distro) {
             Write-Host '   [Y] Yes - fresh distro / new user. Makes the Linux user, gives it sudo'
             Write-Host '       (admin) and sets up the XFCE desktop session.'
             Write-Host '   [N] No  - the Linux user already exists; only remember it here.'
-            $mk = (Read-Line ' Create the Linux user too? (Y/N) [Y]').ToUpper()
-            try { [void](Add-AccountInteractive $distro $uname ($mk -ne 'N')) }
+            $mk = Read-YesNo 'Create the Linux user too?' $true
+            try { [void](Add-AccountInteractive $distro $uname $mk) }
             catch [System.IO.EndOfStreamException] { throw }
             catch { Write-Host " Error: $_" -ForegroundColor Red }
             Pause-Console
@@ -591,8 +612,9 @@ function Show-AccountMenu([string]$distro) {
         elseif ($opt -eq 'P' -or $opt -eq 'R') {
             if ($accounts.Count -eq 0) { Write-Host ' No accounts saved yet.' -ForegroundColor Yellow; Pause-Console; continue }
             $idx = Read-Line ' Enter the account number'
-            if (-not ($idx -match '^\d+$' -and [int]$idx -ge 1 -and [int]$idx -le $accounts.Count)) { continue }
-            $target = $accounts[[int]$idx - 1].Username
+            $i = Get-ListIndex $idx $accounts.Count
+            if ($i -lt 0) { continue }
+            $target = $accounts[$i].Username
             if ($opt -eq 'R') {
                 Remove-SavedAccount $distro $target
                 Write-Host " Removed saved account '$target' (the Linux user is untouched)." -ForegroundColor Green
@@ -904,8 +926,7 @@ function Toggle-DistroSystemd([string]$distro) {
     Write-Host ' SSH, cron, databases) start properly. It is set in /etc/wsl.conf and takes'
     Write-Host ' effect after the distro restarts.'
     Write-Host ''
-    $r = (Read-Line " $(if ($enabled) { 'Turn it OFF' } else { 'Turn it ON' })? (Y/N) [Y]").ToUpper()
-    if ($r -eq 'N') { return }
+    if (-not (Read-YesNo "$(if ($enabled) { 'Turn it OFF' } else { 'Turn it ON' })?" $true)) { return }
 
     if ($enabled) {
         $s = "sed -i -E 's/^([[:space:]]*systemd[[:space:]]*=).*/\1false/' /etc/wsl.conf"
@@ -944,7 +965,8 @@ function Show-OpenMenu([string]$distro) {
         $ch = (Read-Line ' Select [1]').ToUpper()
         if ($ch -eq 'B') { return }
         if ($ch -eq '') { $ch = '1' }
-        if ($ch -match '^\d+$' -and [int]$ch -ge 1 -and [int]$ch -le $accounts.Count) { $account = $accounts[[int]$ch - 1] }
+        $i = Get-ListIndex $ch $accounts.Count
+        if ($i -ge 0) { $account = $accounts[$i] }
         elseif ($ch -ne 'N') { Write-Host ' Not a valid choice.' -ForegroundColor Red; Pause-Console; return }
     } else {
         Write-Host ' No saved account yet. Use Manage Accounts -> [A] to create one (needed for' -ForegroundColor DarkGray
@@ -999,7 +1021,7 @@ function Show-DistroMenu([string]$distro) {
         elseif ($opt -eq 'A') { Show-AccountMenu $distro }
         elseif ($opt -eq 'P') {
             $np = Read-Line ' New xrdp port (1024-65535, e.g. 3391)'
-            if ($np -match '^\d+$' -and [int]$np -ge 1024 -and [int]$np -le 65535) {
+            if ($np -match '^\d{1,5}$' -and [int]$np -ge 1024 -and [int]$np -le 65535) {
                 Set-DistroPort $distro ([int]$np)
                 Write-Host " Port set to $np. It is applied the next time you open the desktop." -ForegroundColor Green
             } else { Write-Host ' Not a valid port.' -ForegroundColor Red }
@@ -1039,8 +1061,9 @@ function Export-DistroMenu {
     for ($i = 0; $i -lt $distros.Count; $i++) { Write-Host "   [$($i + 1)] $($distros[$i].Name)" }
     Write-Host '   [B] Back'
     $c = Read-Line ' Enter your choice'
-    if (-not ($c -match '^\d+$' -and [int]$c -ge 1 -and [int]$c -le $distros.Count)) { return }
-    $name = $distros[[int]$c - 1].Name
+    $pick = Get-ListIndex $c $distros.Count
+    if ($pick -lt 0) { return }
+    $name = $distros[$pick].Name
 
     Write-Host ''
     Write-Host '   [1] .tar  - works on any WSL machine'
@@ -1055,10 +1078,10 @@ function Export-DistroMenu {
     Write-Host ''
     Write-Host " This will STOP $name (an open desktop/terminal closes - save your work)," -ForegroundColor Yellow
     Write-Host " then save it all to: $file"
-    if ((Read-Line ' Start the backup? (Y/N)').ToUpper() -ne 'Y') { return }
+    if (-not (Read-YesNo 'Start the backup?' $false)) { return }
 
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    if ($distros[[int]$c - 1].State -eq 'Running') { Write-Host " Stopping $name ..."; Stop-Distro $name }
+    if ($distros[$pick].State -eq 'Running') { Write-Host " Stopping $name ..."; Stop-Distro $name }
 
     Write-Host ' Exporting - please wait (can take a few minutes)...' -ForegroundColor Cyan
     $a = @('--export', $name, $file)
@@ -1104,8 +1127,8 @@ function Import-DistroMenu {
     if ($c.ToUpper() -eq 'P') {
         $custom = (Read-Line ' Full path to the file').Trim('"', "'")
         if ($custom) { $selected = $custom }
-    } elseif ($c -match '^\d+$' -and [int]$c -ge 1 -and [int]$c -le $shown) {
-        $selected = $files[[int]$c - 1].FullName
+    } elseif (($fi = Get-ListIndex $c $shown) -ge 0) {
+        $selected = $files[$fi].FullName
     }
     if (-not $selected -or -not (Test-Path -LiteralPath $selected -PathType Leaf)) {
         Write-Host ' File not found or invalid choice.' -ForegroundColor Red; Pause-Console; return
@@ -1115,7 +1138,10 @@ function Import-DistroMenu {
     $def = [System.IO.Path]::GetFileNameWithoutExtension($selected) -replace '_\d{4}-\d{2}-\d{2}_\d{4}$', ''
     $name = Read-Line " Name for the restored distro [$def]"
     if (-not $name) { $name = $def }
-    if (-not $name -or $name -match '\s') { Write-Host ' Names cannot be empty or contain spaces.' -ForegroundColor Red; Pause-Console; return }
+    if (-not (Test-DistroName $name)) {
+        Write-Host ' A distro name can only use letters, digits, dot, - and _ (no spaces).' -ForegroundColor Red
+        Pause-Console; return
+    }
     if (Get-WslDistros | Where-Object { $_.Name -eq $name }) {
         Write-Host " A distro called '$name' is already installed. Restore under a different" -ForegroundColor Red
         Write-Host " name (e.g. $name-restored) or delete the existing one first."
@@ -1167,7 +1193,7 @@ function Download-DistroMenu {
     Write-Host ''
     $name = Read-Line ' Type the NAME exactly as in the first column (e.g. Debian), or B to go back'
     if (-not $name -or $name.ToUpper() -eq 'B') { return }
-    if ($name -notmatch '^[A-Za-z0-9._-]+$') { Write-Host ' That is not a valid distro name.' -ForegroundColor Red; Pause-Console; return }
+    if (-not (Test-DistroName $name)) { Write-Host ' That is not a valid distro name.' -ForegroundColor Red; Pause-Console; return }
 
     $base = Read-Folder "Where should $name be installed? (its own sub-folder is created inside)" $Global:Config.WslBase
     if ($null -eq $base) { return }
@@ -1185,7 +1211,7 @@ function Download-DistroMenu {
     Write-Host '   [Y] Try a RESUMABLE download - fetches the same official file in pieces, continues'
     Write-Host '       wherever the connection drops, checks its SHA-256 fingerprint, then installs it'
     Write-Host '   [N] Back'
-    if ((Read-Line ' Try the resumable download? (Y/N)').ToUpper() -ne 'Y') { return }
+    if (-not (Read-YesNo 'Try the resumable download?' $false)) { return }
 
     Write-Host "`n Reading Microsoft's official distro list..." -ForegroundColor Cyan
     try {
@@ -1312,12 +1338,10 @@ function Show-DataFoldersMenu {
             Pause-Console
         }
         elseif ($opt -eq '1' -or $opt -eq '2') {
-            $new = (Read-Line ' New folder (full path, e.g. E:\Linux)').Trim('"')
-            if (-not $new) { continue }
-            if (-not [System.IO.Path]::IsPathRooted($new)) {
-                Write-Host ' Please type a full path that starts with a drive letter (e.g. E:\Linux).' -ForegroundColor Red
-                Pause-Console; continue
-            }
+            $what = $(if ($opt -eq '1') { 'Where should NEW Linux disks be saved?' } else { 'Where should NEW backups be saved?' })
+            $cur = $(if ($opt -eq '1') { $Global:Config.WslBase } else { $Global:Config.BackupBase })
+            $new = Read-Folder $what $cur
+            if ($null -eq $new -or $new -eq $cur) { continue }
             try {
                 if (-not (Test-Path -LiteralPath $new)) { New-Item -ItemType Directory -Path $new -Force | Out-Null }
             } catch {
@@ -1395,8 +1419,8 @@ function Show-MainMenu {
                 Invoke-WslQuiet @('--shutdown') | Out-Null
                 Write-Host ' Done - everything is stopped.' -ForegroundColor Green
                 Pause-Console
-            } elseif ($rc -match '^\d+$' -and [int]$rc -ge 1 -and [int]$rc -le $running.Count) {
-                $t = $running[[int]$rc - 1]
+            } elseif (($ri = Get-ListIndex $rc $running.Count) -ge 0) {
+                $t = $running[$ri]
                 Write-Host " Shutting down $t ..." -ForegroundColor Yellow
                 Stop-Distro $t
                 Free-WslVm
@@ -1405,7 +1429,7 @@ function Show-MainMenu {
             }
         }
         elseif ($choice -eq 'S') {
-            if ((Read-Line ' This stops EVERY running distro and frees the WSL VM. Proceed? (Y/N)').ToUpper() -ne 'Y') { continue }
+            if (-not (Read-YesNo 'This stops EVERY running distro and frees the WSL VM. Proceed?' $false)) { continue }
             Write-Host ' Running wsl --shutdown ...' -ForegroundColor Yellow
             Stop-KexAll
             Invoke-WslQuiet @('--shutdown') | Out-Null
@@ -1426,21 +1450,22 @@ function Show-MainMenu {
             Write-Host "`n Compact which distro?" -ForegroundColor Yellow
             for ($i = 0; $i -lt $distros.Count; $i++) { Write-Host "   [$($i + 1)] $($distros[$i].Name)" }
             $kc = Read-Line ' Enter your choice'
-            if ($kc -match '^\d+$' -and [int]$kc -ge 1 -and [int]$kc -le $distros.Count) { Compact-DistroDisk $distros[[int]$kc - 1].Name }
+            $ki = Get-ListIndex $kc $distros.Count
+            if ($ki -ge 0) { Compact-DistroDisk $distros[$ki].Name }
         }
         elseif ($choice -eq 'U') {
             Show-Header 'Update / repair WSL'
             Write-Host " This updates the WSL platform (fixes many `"won't start`" / kernel problems)."
             Write-Host ' It needs administrator rights - click YES on the Windows prompt.'
             Write-Host ' Your distros and their files are NOT touched.'
-            if ((Read-Line ' Update WSL now? (Y/N)').ToUpper() -ne 'Y') { continue }
+            if (-not (Read-YesNo 'Update WSL now?' $false)) { continue }
             try {
                 Start-Process -FilePath 'cmd.exe' -Verb RunAs -Wait -ArgumentList (Join-WinArgs @('/c', 'wsl --update & echo. & pause'))
             } catch { Write-Host ' The administrator prompt was declined or failed.' -ForegroundColor Red }
             Pause-Console
         }
-        elseif ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $distros.Count) {
-            Show-DistroMenu $distros[[int]$choice - 1].Name
+        elseif (($di = Get-ListIndex $choice $distros.Count) -ge 0) {
+            Show-DistroMenu $distros[$di].Name
         }
         else {
             Write-Host "`n That was not a valid choice." -ForegroundColor Red
