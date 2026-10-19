@@ -1,2 +1,10 @@
 # Saved accounts hold a DPAPI-encrypted password blob - never commit these.
+# DPAPI blobs are tied to the current Windows user, useless and potentially
+# confusing on other machines.
 accounts/
+
+# config.json stores user-specific paths and settings.
+config.json
+
+# Scratch temp files
+*.tmp
