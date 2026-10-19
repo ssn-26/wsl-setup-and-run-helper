@@ -35,7 +35,7 @@ My try to learn bash through a real-world working project.
 | `E` | Back up a distro | `wsl --export` saves everything to one `.tar` (or faster `.vhdx`) file |
 | `R` | Restore a backup | `wsl --import` brings a backup back, on this PC or a new one |
 | `K` | Compact a disk | Hands unused `ext4.vhdx` space back to Windows (admin, via diskpart) |
-| `T` | Memory / CPU limits | Edits `.wslconfig` (a copy of the old file is kept as `.wslconfig.bak`) |
+| `T` | Memory / CPU limits | Sets `memory`, `processors` and `swap` in `.wslconfig`; your other settings stay (a copy is kept as `.wslconfig.bak`) |
 | `D` | Data folders | Choose where new Linux disks and backups are saved |
 | `U` | Update / repair WSL | `wsl --update` (admin) |
 | `Q` | Quit | Closes the panel; distros keep running |
@@ -137,6 +137,7 @@ data\                     everything the panel creates (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
   backups\                backups made with [E]
   linux\                  one folder per distro, holding its disk (ext4.vhdx)
+  logs\                   the full output of each desktop install
 ```
 
 The `data` folders are created the first time they are needed. The Linux disks
@@ -166,7 +167,7 @@ working (saved passwords only decrypt on the same Windows login, though).
 | Kali: TigerVNC says *"Failed to connect to localhost:1 ... actively refused (10061)"* when opening | A minimal Kali got Win-KeX without the XFCE desktop it runs (its log says `startxfce4: not found`), so the server starts and exits at once | The current panel detects this and offers `[I]` Install, which adds `kali-desktop-xfce`. Or in a Terminal: `sudo apt install -y kali-desktop-xfce dbus-x11` |
 | Kali: a TigerVNC connection error pops up when you close the distro from the panel | Older panels stopped Win-KeX as the distro's default user (often root), which cannot stop your account's desktop, so shutdown killed it under the viewer | Fixed in the current panel: it stops Win-KeX as the account that started it |
 | Kali: *"Xfce Notify Daemon – Unable to start notification daemon … Wayland compositor"* appears on the Windows desktop (e.g. when logging out) | XFCE starts its notification helper through systemd, which didn't know the desktop's display, so it fell back to **WSLg** | Fixed in the current panel: it tells systemd `DISPLAY=:1` and `GDK_BACKEND=x11` when starting Win-KeX. Close the dialog; reopen the desktop through the panel |
-| Desktop install ends with `AUR_BUILD_FAILED` (Arch) | Building xrdp from the AUR failed | Open a Terminal to read the error above it. Usually no internet, or a full disk |
+| Desktop install ends with `AUR_BUILD_FAILED` (Arch) | Building xrdp from the AUR failed | Read the error in the install log the panel names (in `data\logs`). Usually no internet, or a full disk |
 | Remote Desktop is black **and XFCE's panel/dock appears on the Windows desktop** | WSL links **WSLg** (its bridge that shows Linux windows on Windows) into every user's runtime folder, and XFCE's toolkit prefers it over xrdp's screen | Fixed in the current panel: the session files force X11. For a desktop set up with an older panel, re-add the account with Accounts, `[A]`, **Y** (this rewrites the session files), log out of the old session, and open the Desktop again |
 | Remote Desktop window is black (nothing on the Windows desktop either) | The XFCE session didn't start for that user | Log in with a user made through `[A]` → **Y** (it sets up the XFCE session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` end with `exec startxfce4` |
 | Desktop closes a few seconds after opening | WSL idle shutdown | Open it through the panel. Its keep-alive holds WSL up while XFCE runs |
@@ -187,6 +188,11 @@ working (saved passwords only decrypt on the same Windows login, though).
   refuses to overwrite a distro that already exists.
 - The resumable download only installs a file whose SHA-256 matches
   Microsoft's official WSL distro list.
+- The steps that need administrator rights (first-time setup, disk compaction)
+  are passed straight to the elevated window, never through a script file in
+  `%TEMP%` that another program could change first.
+- Changing the xrdp port refuses 3389 (Windows' own Remote Desktop), a port
+  another distro is set to, and a port something on Windows already listens on.
 
 ---
 

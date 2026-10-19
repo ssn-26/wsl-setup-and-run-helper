@@ -28,6 +28,7 @@ try { $Host.UI.RawUI.WindowTitle = 'WSL Control Panel' } catch { }
 #   <root>\data\config\            config.json + saved accounts (encrypted passwords)
 #   <root>\data\backups\           backups made with [E]       (location can be changed)
 #   <root>\data\linux\             one folder per distro disk  (location can be changed)
+#   <root>\data\logs\              output of desktop installs
 $SCRIPT_DIR = $PSScriptRoot
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = (Get-Location).Path }
@@ -37,6 +38,7 @@ $SCRIPTS_FOLDER  = Join-Path $ROOT_DIR 'bash files'
 $DATA_FOLDER     = Join-Path $ROOT_DIR 'data'
 $CONFIG_FOLDER   = Join-Path $DATA_FOLDER 'config'
 $ACCOUNTS_FOLDER = Join-Path $CONFIG_FOLDER 'accounts'
+$LOGS_FOLDER     = Join-Path $DATA_FOLDER 'logs'
 $CONFIG_FILE     = Join-Path $CONFIG_FOLDER 'config.json'
 
 # ------------------------------------------------------------------------------
@@ -153,6 +155,19 @@ function Test-DistroName([string]$name) { return ($name -match '^[A-Za-z0-9._-]+
 function Test-IsAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Runs PowerShell code as administrator (UAC prompt) and waits for it. The code
+# travels inside the command line (-EncodedCommand), not as a file in %TEMP%
+# that something else could swap out before the elevated window reads it.
+# Returns $false if the prompt was declined.
+function Invoke-ElevatedScript([string]$code) {
+    $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($code))
+    try {
+        Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait `
+            -ArgumentList (Join-WinArgs @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $enc))
+        return $true
+    } catch { return $false }
 }
 
 function Get-ScriptText([string]$name) {
@@ -405,16 +420,10 @@ Write-Host ''
 Write-Host 'Press any key to close this window...'
 $null = [Console]::ReadKey($true)
 '@
-    $tmp = Join-Path $env:TEMP 'wsl-first-time-setup.ps1'
-    Set-Content -LiteralPath $tmp -Value $setup -Force
     Write-Host "`n Asking for administrator rights - please click YES on the prompt..." -ForegroundColor Cyan
-    try {
-        Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait `
-            -ArgumentList (Join-WinArgs @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $tmp))
-    } catch {
+    if (-not (Invoke-ElevatedScript $setup)) {
         Write-Host ' The administrator prompt was declined or failed.' -ForegroundColor Red
     }
-    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
 
     Write-Host "`n Checking whether WSL is ready..." -ForegroundColor Cyan
     $state = 'READY'
@@ -459,6 +468,24 @@ function Get-DistroPort([string]$distro) {
 function Set-DistroPort([string]$distro, [int]$port) {
     if (-not (Test-Path -LiteralPath $ACCOUNTS_FOLDER)) { New-Item -ItemType Directory -Path $ACCOUNTS_FOLDER -Force | Out-Null }
     Set-Content -LiteralPath (Get-PortFile $distro) -Value $port -Force
+}
+
+# Why <port> cannot be used for <distro>'s xrdp, or $null if it is free.
+function Get-PortProblem([string]$distro, [int]$port) {
+    if ($port -eq 3389) { return "Port 3389 belongs to Windows' own Remote Desktop." }
+    foreach ($d in @(Get-WslDistros | Where-Object { -not $_.IsSystem -and $_.Name -ne $distro })) {
+        if ((Get-DistroPort $d.Name) -eq $port) { return "'$($d.Name)' is already set to use port $port." }
+    }
+    # Something on Windows already listening (skipped for this distro's current
+    # port: its own running xrdp shows up there).
+    if ($port -ne (Get-DistroPort $distro)) {
+        try {
+            if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop) {
+                return "Another program on Windows is already listening on port $port."
+            }
+        } catch { }
+    }
+    return $null
 }
 
 function Get-SavedAccounts([string]$distro) {
@@ -651,9 +678,12 @@ function Start-KeepAlive([string]$distro) {
 # Installs the XFCE desktop (+ xrdp, or Kali's Win-KeX). Returns $true on success.
 function Install-DesktopInDistro([string]$distro, [int]$port, [bool]$isKali) {
     Show-Header "Installing a desktop for: $distro"
+    # Output goes to the screen AND (through tee) to a log inside the distro,
+    # which is copied to data\logs afterwards so a failure can still be read.
+    $log = '/var/log/wsl-panel-desktop-install.log'
     if ($isKali) {
         Write-Host " Installing Kali's XFCE desktop + Win-KeX (about 1-2 GB - this can take a while)..." -ForegroundColor Yellow
-        $cmd = 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y kali-desktop-xfce dbus-x11 kali-win-kex'
+        $cmd = '{ set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y kali-desktop-xfce dbus-x11 kali-win-kex; } 2>&1 | tee ' + $log + '; exit ${PIPESTATUS[0]}'
         $rc = Invoke-WslInline @('-d', $distro, '-u', 'root', '--', 'bash', '-lc', $cmd)
     } else {
         Write-Host " Installing an XFCE desktop + xrdp (port $port) on $distro ..." -ForegroundColor Yellow
@@ -663,10 +693,11 @@ function Install-DesktopInDistro([string]$distro, [int]$port, [bool]$isKali) {
         # old .bat did) so no command line has to carry it.
         $tmp = Join-Path $env:TEMP 'wsl-desktop-setup.b64'
         Set-Content -LiteralPath $tmp -Value (ConvertTo-Base64 (Get-ScriptText 'install-desktop.sh')) -Force -Encoding Ascii
-        $cmd = "tr -d '\r' | base64 -d > /tmp/wsl-desktop-setup.sh && bash /tmp/wsl-desktop-setup.sh $port </dev/null"
+        $cmd = "tr -d '\r' | base64 -d > /tmp/wsl-desktop-setup.sh && { bash /tmp/wsl-desktop-setup.sh $port </dev/null 2>&1 | tee $log; rc=`${PIPESTATUS[0]}; rm -f /tmp/wsl-desktop-setup.sh; exit `$rc; }"
         $rc = Invoke-WslInline @('-d', $distro, '-u', 'root', '-e', 'bash', '-c', $cmd) $tmp
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
+    $saved = Save-DistroLog $distro $log 'desktop-install'
     if ($rc -eq 0) {
         Write-Host "`n Desktop installation finished." -ForegroundColor Green
         Start-Sleep -Seconds 2
@@ -678,9 +709,23 @@ function Install-DesktopInDistro([string]$distro, [int]$port, [bool]$isKali) {
     Write-Host '   - out of disk space'
     Write-Host '   - Arch: building xrdp from the AUR failed (prints AUR_BUILD_FAILED above)'
     Write-Host '   - an unrecognised package manager (prints UNKNOWN_PKG_MANAGER above)'
-    Write-Host ' Open the distro as a Terminal to read the output above, then try again.'
+    if ($saved) { Write-Host " The full output is saved in: $saved" -ForegroundColor Yellow }
+    else { Write-Host ' Open the distro as a Terminal to read the output above, then try again.' }
     Pause-Console
     return $false
+}
+
+# Copies a log file from inside the distro to data\logs\<distro>-<what>-<time>.log.
+# Returns the Windows path, or $null if there was nothing to copy.
+function Save-DistroLog([string]$distro, [string]$linuxPath, [string]$what) {
+    try {
+        $res = Invoke-WslQuiet @('-d', $distro, '-u', 'root', '-e', 'cat', $linuxPath)
+        if ($res.ExitCode -ne 0 -or $res.Output.Count -eq 0) { return $null }
+        if (-not (Test-Path -LiteralPath $LOGS_FOLDER)) { New-Item -ItemType Directory -Path $LOGS_FOLDER -Force | Out-Null }
+        $file = Join-Path $LOGS_FOLDER ("{0}-{1}-{2}.log" -f $distro, $what, (Get-Date -Format 'yyyy-MM-dd_HHmmss'))
+        [System.IO.File]::WriteAllLines($file, [string[]]$res.Output, (New-Object System.Text.UTF8Encoding($false)))
+        return $file
+    } catch { return $null }
 }
 
 function Start-KexDesktop([string]$distro, $account) {
@@ -887,22 +932,16 @@ function Compact-DistroDisk([string]$distro) {
         Write-Host ' This WSL version refused sparse mode - compacting instead.' -ForegroundColor Yellow
     }
 
-    $dp = Join-Path $env:TEMP 'wsl-compact.txt'
-    Set-Content -LiteralPath $dp -Encoding Ascii -Value @(
-        "select vdisk file=`"$($vhd.VhdxPath)`"", 'attach vdisk readonly', 'compact vdisk', 'detach vdisk', 'exit')
+    # diskpart reads its commands from a pipe, so no script file is written.
+    $vhdArg = $vhd.VhdxPath -replace "'", "''"
+    $compact = "@('select vdisk file=`"$vhdArg`"', 'attach vdisk readonly', 'compact vdisk', 'detach vdisk', 'exit') | diskpart.exe"
     Write-Host ' Compacting with diskpart (a Windows security prompt may appear - click YES)...' -ForegroundColor Cyan
-    try {
-        if (Test-IsAdmin) {
-            Start-Process -FilePath 'diskpart.exe' -ArgumentList (Join-WinArgs @('/s', $dp)) -Wait -NoNewWindow
-        } else {
-            Start-Process -FilePath 'diskpart.exe' -ArgumentList (Join-WinArgs @('/s', $dp)) -Wait -Verb RunAs
-        }
-    } catch {
+    if (Test-IsAdmin) {
+        @("select vdisk file=`"$($vhd.VhdxPath)`"", 'attach vdisk readonly', 'compact vdisk', 'detach vdisk', 'exit') | diskpart.exe | Out-Host
+    } elseif (-not (Invoke-ElevatedScript $compact)) {
         Write-Host ' The administrator prompt was declined or failed - nothing was changed.' -ForegroundColor Red
-        Remove-Item -LiteralPath $dp -Force -ErrorAction SilentlyContinue
         Pause-Console; return
     }
-    Remove-Item -LiteralPath $dp -Force -ErrorAction SilentlyContinue
 
     $after = Get-DistroVhdInfo $distro
     $saved = [math]::Round($vhd.SizeGB - $after.SizeGB, 2)
@@ -1022,8 +1061,13 @@ function Show-DistroMenu([string]$distro) {
         elseif ($opt -eq 'P') {
             $np = Read-Line ' New xrdp port (1024-65535, e.g. 3391)'
             if ($np -match '^\d{1,5}$' -and [int]$np -ge 1024 -and [int]$np -le 65535) {
-                Set-DistroPort $distro ([int]$np)
-                Write-Host " Port set to $np. It is applied the next time you open the desktop." -ForegroundColor Green
+                $problem = Get-PortProblem $distro ([int]$np)
+                if ($problem) {
+                    Write-Host " $problem Pick another port." -ForegroundColor Red
+                } else {
+                    Set-DistroPort $distro ([int]$np)
+                    Write-Host " Port set to $np. It is applied the next time you open the desktop." -ForegroundColor Green
+                }
             } else { Write-Host ' Not a valid port.' -ForegroundColor Red }
             Pause-Console
         }
@@ -1222,7 +1266,13 @@ function Download-DistroMenu {
         $key = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'Arm64Url' } else { 'Amd64Url' })
         $url = $entry.$key.Url
         $sha = ([string]$entry.$key.Sha256) -replace '^0x', ''
-        $file = Join-Path $env:TEMP "$name.wsl"
+        # The temp name carries the start of the image's SHA-256, so curl only
+        # resumes a partial file of THIS image. Leftovers of older images
+        # (a newer one was published since) are deleted instead.
+        $tag = $sha.Substring(0, [math]::Min(12, $sha.Length)).ToLower()
+        $file = Join-Path $env:TEMP "wsl-$name-$tag.wsl"
+        Get-ChildItem -LiteralPath $env:TEMP -Filter "wsl-$name-*.wsl" -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -ne $file } | Remove-Item -Force -ErrorAction SilentlyContinue
 
         Write-Host " Downloading $url" -ForegroundColor Cyan
         Write-Host ' (resumable: if the server drops the connection it continues where it stopped)' -ForegroundColor DarkGray
@@ -1280,7 +1330,7 @@ function Show-TuningMenu {
     Write-Host '   [2] Balanced: 8 GB RAM, 4 CPU cores, 4 GB swap'
     Write-Host '   [3] Heavy:    16 GB RAM, 6 CPU cores, 8 GB swap'
     Write-Host '   [4] Custom values'
-    Write-Host '   [D] Reset to defaults (delete .wslconfig)'
+    Write-Host "   [D] Reset memory / CPU / swap to WSL's defaults (other settings are kept)"
     Write-Host '   [B] Back'
     $opt = (Read-Line ' Enter your choice').ToUpper()
 
@@ -1296,21 +1346,66 @@ function Show-TuningMenu {
             Pause-Console; return
         }
     }
-    elseif ($opt -eq 'D') {
-        if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path -Destination "$path.bak" -Force; Remove-Item -LiteralPath $path -Force }
-        Write-Host "`n .wslconfig removed (a copy was kept as .wslconfig.bak)." -ForegroundColor Green
-        Pause-Console; return
-    }
+    elseif ($opt -eq 'D') { $mem = $null; $cpu = $null; $swap = $null }
     else { return }
 
-    # This replaces the whole file, so keep a copy of what was there.
+    # Only these three keys change; any other setting in the file stays.
+    # A copy of the old file is still kept, just in case.
+    $old = @()
     if (Test-Path -LiteralPath $path) {
+        $old = [System.IO.File]::ReadAllLines($path)
         Copy-Item -LiteralPath $path -Destination "$path.bak" -Force
         Write-Host ' (your previous file was saved as .wslconfig.bak)' -ForegroundColor DarkGray
     }
-    Set-Content -LiteralPath $path -Value @('[wsl2]', "memory=$mem", "processors=$cpu", "swap=$swap") -Force
-    Write-Host "`n .wslconfig updated. Use [S] Shut down ALL WSL for it to take effect." -ForegroundColor Green
+    $new = Update-WslConfigLines $old ([ordered]@{ memory = $mem; processors = $cpu; swap = $swap })
+    if (-not ($new | Where-Object { $_.Trim() -ne '' -and $_.Trim() -ine '[wsl2]' })) {
+        # Nothing left but an empty [wsl2] section: WSL's defaults need no file.
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    } else {
+        [System.IO.File]::WriteAllLines($path, [string[]]$new, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    if ($opt -eq 'D') { Write-Host "`n Memory / CPU / swap limits removed - WSL uses its defaults again." -ForegroundColor Green }
+    else { Write-Host "`n .wslconfig updated." -ForegroundColor Green }
+    Write-Host ' Use [S] Shut down ALL WSL for it to take effect.' -ForegroundColor Green
     Pause-Console
+}
+
+# Sets the given keys in the [wsl2] section of .wslconfig lines (a $null value
+# removes that key) and leaves every other line exactly as it was.
+function Update-WslConfigLines([string[]]$lines, $values) {
+    $out = New-Object System.Collections.Generic.List[string]
+    $done = @{}
+    $addMissing = {
+        # Above any blank lines that close the section, not after them.
+        $at = $out.Count
+        while ($at -gt 0 -and $out[$at - 1].Trim() -eq '') { $at-- }
+        foreach ($k in $values.Keys) {
+            if ($null -ne $values[$k] -and -not $done[$k]) { $out.Insert($at, "$k=$($values[$k])"); $at++; $done[$k] = $true }
+        }
+    }
+    $inWsl2 = $false; $seenWsl2 = $false
+    foreach ($line in $lines) {
+        if ($line -match '^\s*\[(.+?)\]\s*$') {
+            if ($inWsl2) { & $addMissing }
+            $inWsl2 = ($Matches[1].Trim() -ieq 'wsl2')
+            if ($inWsl2) { $seenWsl2 = $true }
+        } elseif ($inWsl2 -and $line -match '^\s*([A-Za-z0-9_.]+)\s*=') {
+            $name = $Matches[1]
+            $key = @($values.Keys | Where-Object { $_ -ieq $name }) | Select-Object -First 1
+            if ($key) {
+                if ($null -ne $values[$key] -and -not $done[$key]) { $out.Add("$key=$($values[$key])"); $done[$key] = $true }
+                continue
+            }
+        }
+        $out.Add($line)
+    }
+    if ($inWsl2) { & $addMissing }
+    elseif (-not $seenWsl2 -and @($values.Values | Where-Object { $null -ne $_ }).Count -gt 0) {
+        if ($out.Count -gt 0) { $out.Add('') }
+        $out.Add('[wsl2]')
+        & $addMissing
+    }
+    return ,$out.ToArray()
 }
 
 # ------------------------------------------------------------------------------
