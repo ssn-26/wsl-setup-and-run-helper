@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in every header, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '1.2.0'
+$PANEL_VERSION = '1.3.0'
 
 # WSL_UTF8=1 makes wsl.exe print UTF-8 instead of UTF-16 (children inherit it).
 $env:WSL_UTF8 = '1'
@@ -94,16 +94,17 @@ $UI = @{
     Error   = 'Red'
 }
 
-# Windows Terminal and VS Code draw these symbols; the fonts of the old console
-# window may not, so it gets plain ASCII stand-ins. The [char] codes keep this
-# file itself plain ASCII.
-$FANCY = [bool]($env:WT_SESSION -or $env:TERM_PROGRAM -eq 'vscode')
+# Symbols from the WGL4 set, which every Windows console font (Consolas, Lucida
+# Console, Cascadia) can draw - in Windows Terminal and the old console alike.
+# The [char] codes keep this file itself plain ASCII. Set WSL_PANEL_ASCII=1 for
+# plain ASCII stand-ins on a font that shows boxes instead.
+$FANCY = -not $env:WSL_PANEL_ASCII
 $GLYPH = @{
     Running = $(if ($FANCY) { [string][char]0x25CF } else { '*' })   # filled dot
     Stopped = $(if ($FANCY) { [string][char]0x25CB } else { '-' })   # hollow dot
-    Ok      = $(if ($FANCY) { [string][char]0x2713 } else { '+' })   # check mark
+    Ok      = $(if ($FANCY) { [string][char]0x221A } else { '+' })   # check (square-root sign)
     Warn    = '!'
-    Error   = $(if ($FANCY) { [string][char]0x2717 } else { 'x' })   # cross
+    Error   = $(if ($FANCY) { [string][char]0x00D7 } else { 'x' })   # multiplication cross
     Line    = $(if ($FANCY) { [string][char]0x2500 } else { '-' })   # box-drawing line
 }
 
@@ -671,6 +672,63 @@ function Confirm-AccountExists([string]$distro, $account) {
     return (Add-AccountInteractive $distro $account.Username $true)
 }
 
+# Asks for a new Linux username until it is valid, suggesting the Windows user
+# name when that is a valid Linux name. $null = gave up (B, or ENTER with no
+# suggestion).
+function Read-NewUsername {
+    $suggest = ($env:USERNAME -replace '[^A-Za-z0-9_-]', '').ToLower()
+    if ($suggest -notmatch '^[a-z_][a-z0-9_-]{0,31}$') { $suggest = '' }
+    while ($true) {
+        $u = Read-Line $(if ($suggest) { " Linux username [$suggest] (B = back)" } else { ' Linux username (B = back)' })
+        if (-not $u) { if ($suggest) { return $suggest } else { return $null } }
+        if ($u -ceq 'B') { return $null }
+        if ($u -cmatch '^[a-z_][a-z0-9_-]{0,31}$') { return $u }
+        Write-Host ' Use lowercase letters, digits, - and _, starting with a letter (e.g. alex).' -ForegroundColor $UI.Error
+    }
+}
+
+# True when the distro logs in as root by default (fresh download, no user yet).
+function Test-RootDefault([string]$distro) {
+    $uid = Invoke-WslQuiet @('-d', $distro, '-e', 'id', '-u')
+    return ($uid.Output.Count -gt 0 -and $uid.Output[0] -eq '0')
+}
+
+# Makes <user> the distro's default login, so a Terminal opens as them too.
+function Set-DefaultUser([string]$distro, [string]$user) {
+    if ((Invoke-WslQuiet @('--manage', $distro, '--set-default-user', $user)).ExitCode -eq 0) { return }
+    # Older WSL has no --manage; the same setting lives in /etc/wsl.conf
+    # (used from the next start). $user is a checked Linux name.
+    $script = "U=$user`n" + @'
+touch /etc/wsl.conf
+if grep -q '^\[user\]' /etc/wsl.conf; then
+    sed -i '/^\[user\]/,/^\[/{/^default[[:space:]]*=/d}' /etc/wsl.conf
+    sed -i "/^\[user\]/a default=$U" /etc/wsl.conf
+else
+    printf '\n[user]\ndefault=%s\n' "$U" >> /etc/wsl.conf
+fi
+'@
+    Invoke-WslScript $distro 'root' $script | Out-Null
+}
+
+# A freshly downloaded distro only has root, which cannot log in to a desktop.
+# Creates the first user right where it is needed (admin rights, desktop
+# session, saved login, default login), so nobody has to detour through Manage
+# Accounts first. Returns the saved account, or $null if skipped or failed.
+function New-FirstAccount([string]$distro) {
+    Write-Host ''
+    Write-Host " $distro has no user of its own yet - only root, which cannot log in to a desktop." -ForegroundColor $UI.Warn
+    Write-Host ' The panel can create yours now: a username and password with admin (sudo) rights,' -ForegroundColor $UI.Hint
+    Write-Host ' the desktop session set up, and the login saved here (encrypted) for auto-login.' -ForegroundColor $UI.Hint
+    Write-Host ''
+    if (-not (Read-YesNo 'Create your Linux user now?' $true)) { return $null }
+    $uname = Read-NewUsername
+    if (-not $uname) { return $null }
+    if (-not (Add-AccountInteractive $distro $uname $true)) { Pause-Console; return $null }
+    Set-DefaultUser $distro $uname
+    Write-Host " '$uname' is now the default login, so a Terminal opens as you too." -ForegroundColor $UI.Hint
+    return (Get-SavedAccounts $distro | Where-Object { $_.Username -eq $uname } | Select-Object -First 1)
+}
+
 function Show-AccountMenu([string]$distro) {
     while ($true) {
         Show-Header "Manage Accounts for: $distro"
@@ -689,11 +747,8 @@ function Show-AccountMenu([string]$distro) {
         if ($opt -eq 'B') { return }
         elseif ($opt -eq 'A') {
             Write-Host ''
-            $uname = Read-Line ' Enter the Linux username'
-            if ($uname -notmatch '^[a-z_][a-z0-9_-]{0,31}$') {
-                Write-Host ' Invalid username: use lowercase letters, digits, - and _, starting with a letter.' -ForegroundColor $UI.Error
-                Pause-Console; continue
-            }
+            $uname = Read-NewUsername
+            if (-not $uname) { continue }
             Write-Host ''
             Write-Host " Also CREATE this user inside $distro now?"
             Write-MenuItem 'Y' 'Yes' 'fresh distro / new user. Makes the Linux user, gives it sudo'
@@ -809,8 +864,8 @@ function Start-KexDesktop([string]$distro, $account) {
         if ($uid.Output.Count -gt 0 -and $uid.Output[0] -eq '0') {
             Write-Host ''
             Write-Host " The Kali desktop (Win-KeX) cannot run as root, and $distro has no normal" -ForegroundColor $UI.Error
-            Write-Host ' user as its default login yet. Fix: Manage Accounts -> [A] Add an account'
-            Write-Host ' (answer Y), then open the Desktop using that account.'
+            Write-Host ' user yet. Open the Desktop again and answer Y to create yours (or use'
+            Write-Host ' Accounts -> [A] Add an account).'
             Pause-Console
             return
         }
@@ -843,6 +898,11 @@ function Test-XrdpListening([string]$distro, [int]$port) {
 function Start-DistroDesktop([string]$distro, $account, [bool]$afterInstall = $false) {
     Show-Header "Opening Desktop for $distro"
     if (-not (Confirm-AccountExists $distro $account)) { return }
+    # Nothing saved and the distro only has root: make the user now, then carry
+    # straight on opening the desktop with it.
+    if (-not $account -and @(Get-SavedAccounts $distro).Count -eq 0 -and (Test-RootDefault $distro)) {
+        $account = New-FirstAccount $distro
+    }
 
     Write-Host " Detecting desktop type for $distro ..." -ForegroundColor $UI.Hint
     # kex alone is not enough: on a minimal Kali, kali-win-kex installs without
@@ -1075,8 +1135,7 @@ function Show-OpenMenu([string]$distro) {
         if ($i -ge 0) { $account = $accounts[$i] }
         elseif ($ch -ne 'N') { Write-Host ' Not a valid choice.' -ForegroundColor $UI.Error; Pause-Console; return }
     } else {
-        Write-Host ' No saved account yet. Use Manage Accounts -> [A] to create one (needed for' -ForegroundColor $UI.Hint
-        Write-Host ' a fresh distro, which only has "root").' -ForegroundColor $UI.Hint
+        Write-Host ' No saved account yet - on a fresh distro, opening the Desktop offers to create one.' -ForegroundColor $UI.Hint
     }
 
     Write-Host ''
@@ -1311,7 +1370,7 @@ function Download-DistroMenu {
 
     Write-Host "`n Installing $name into $loc - this downloads several hundred MB, please wait..." -ForegroundColor $UI.Info
     $rc = Invoke-WslInline @('--install', $name, '--location', $loc, '--no-launch')
-    if ($rc -eq 0) { Show-DownloadDone; return }
+    if ($rc -eq 0) { Show-DownloadDone $name; return }
 
     Write-Host "`n The download/install FAILED (exit code $rc). Common causes:" -ForegroundColor $UI.Warn
     Write-Host '   - the server dropped the connection ("connection was reset"). Debian does this often.'
@@ -1359,7 +1418,7 @@ function Download-DistroMenu {
         Write-Host ' Verified. Installing...' -ForegroundColor $UI.Ok
         $rc = Invoke-WslInline @('--install', '--from-file', $file, '--name', $name, '--location', $loc, '--no-launch')
         Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
-        if ($rc -eq 0) { Show-DownloadDone; return }
+        if ($rc -eq 0) { Show-DownloadDone $name; return }
         Write-Host "`n The install failed (exit code $rc)." -ForegroundColor $UI.Error
     } catch {
         Write-Host " The resumable download did not work either: $_" -ForegroundColor $UI.Error
@@ -1368,12 +1427,14 @@ function Download-DistroMenu {
     Pause-Console
 }
 
-function Show-DownloadDone {
-    Write-Host "`n Finished. To set it up, pick it from the list, choose Accounts -> [A] and" -ForegroundColor $UI.Ok
-    Write-Host ' answer Y - that creates your Linux username and password. (Ubuntu/Debian also'
-    Write-Host ' ask for one the first time you open a Terminal; Arch and some others do not -'
-    Write-Host ' they start as root.)'
-    Pause-Console
+# Right after a download, offers to create the user (most distros start with
+# only root), so the new distro is ready to open in one go.
+function Show-DownloadDone([string]$name) {
+    Write-Host "`n $name is installed." -ForegroundColor $UI.Ok
+    $acct = $null
+    if (Test-RootDefault $name) { $acct = New-FirstAccount $name }
+    if ($acct) { Set-Status "$name is ready - press its number, then O, to open it as '$($acct.Username)'." }
+    else { Set-Status "$name is installed - press its number, then O, to open it." }
 }
 
 # ------------------------------------------------------------------------------

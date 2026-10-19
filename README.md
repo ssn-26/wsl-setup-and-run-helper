@@ -97,14 +97,16 @@ The main screen keeps the everyday actions:
    On a PC without WSL, allow the administrator prompt and restart if asked.
 2. **`[N]` Download**: type a name from the list (e.g. `Ubuntu-24.04`,
    `Debian`, `archlinux`, `kali-linux`) and press Enter for the default folder.
-3. **Create your login**: pick the distro by number, then **`[A]` Accounts**,
-   **`[A]` Add an account**, and answer **Y**. Choose a username and password.
-   The panel then shows each step while it creates the account (on Arch,
-   installing `sudo` takes a minute or two).
-4. **Open the desktop**: pick the distro, choose your account, then **`[1]`
-   Desktop**. The first time, the panel says there's no desktop yet. Press
-   **`[I]`** to install it. This takes 5–20 minutes (Arch is the slowest,
-   because it compiles xrdp). Remote Desktop then opens and logs you in.
+3. **Create your login** right away: when the download finishes, the panel
+   asks *"Create your Linux user now?"*. Press Enter for Yes, choose a username
+   (it suggests your Windows name) and a password. The panel shows each step
+   while it creates the account (on Arch, installing `sudo` takes a minute or
+   two). Skipped it? The panel asks again the first time you open the desktop.
+4. **Open the desktop**: press **Enter** on the main screen (or pick the distro,
+   then **`[O]` Open**, **`[1]` Desktop**). The first time, the panel says there's
+   no desktop yet. Press **`[I]`** to install it. This takes 5–20 minutes (Arch
+   is the slowest, because it compiles xrdp). Remote Desktop then opens and logs
+   you in.
 5. **Back it up** with **`[E]`** once it's set up the way you like.
 
 ## Moving to a new PC
@@ -179,7 +181,7 @@ working (saved passwords only decrypt on the same Windows login, though).
 |---|---|---|
 | Download fails with *"The connection with the server was reset"* | The distro's server dropped the connection (Debian's does this often) | Answer **Y** to the **resumable download**. It continues after each drop and checks the file's SHA-256 before installing |
 | *"...is running its own desktop on port 3390"* | All WSL2 distros share one network, so two xrdp servers cannot use the same port | Choose **[1]** to give this distro its own free port (both desktops stay open), or **[2]** to close the other one |
-| *"The Kali desktop (Win-KeX) cannot run as root"* | A freshly downloaded Kali has no normal user yet | Accounts, `[A]`, answer **Y**, then open the Desktop with that account |
+| *"The Kali desktop (Win-KeX) cannot run as root"* | A freshly downloaded Kali has no normal user yet, and the offer to create one was skipped | Open the Desktop again and answer **Y** when it offers to create your user |
 | Kali: TigerVNC says *"Failed to connect to localhost:1 ... actively refused (10061)"* when opening | A minimal Kali got Win-KeX without the XFCE desktop it runs (its log says `startxfce4: not found`), so the server starts and exits at once | The current panel detects this and offers `[I]` Install, which adds `kali-desktop-xfce`. Or in a Terminal: `sudo apt install -y kali-desktop-xfce dbus-x11` |
 | Kali: a TigerVNC connection error pops up when you close the distro from the panel | Older panels stopped Win-KeX as the distro's default user (often root), which cannot stop your account's desktop, so shutdown killed it under the viewer | Fixed in the current panel: it stops Win-KeX as the account that started it |
 | Kali: *"Xfce Notify Daemon – Unable to start notification daemon … Wayland compositor"* appears on the Windows desktop (e.g. when logging out) | XFCE starts its notification helper through systemd, which didn't know the desktop's display, so it fell back to **WSLg** | Fixed in the current panel: it tells systemd `DISPLAY=:1` and `GDK_BACKEND=x11` when starting Win-KeX. Close the dialog; reopen the desktop through the panel |
