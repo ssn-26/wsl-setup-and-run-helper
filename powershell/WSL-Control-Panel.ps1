@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in every header, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '1.1.0'
+$PANEL_VERSION = '1.2.0'
 
 # WSL_UTF8=1 makes wsl.exe print UTF-8 instead of UTF-16 (children inherit it).
 $env:WSL_UTF8 = '1'
@@ -81,18 +81,76 @@ foreach ($d in @($CONFIG_FOLDER, $ACCOUNTS_FOLDER, $Global:Config.WslBase, $Glob
 # ------------------------------------------------------------------------------
 # UI helpers
 # ------------------------------------------------------------------------------
+# Every colour has ONE meaning - use these names, never a raw colour, so the
+# whole panel can be re-themed here.
+$UI = @{
+    Title   = 'Cyan'      # the panel name and the line under it
+    Heading = 'White'     # section titles ("Installed distros", "Choose an account")
+    Key     = 'Cyan'      # the letter/number to press, e.g. the N in [N]
+    Info    = 'Cyan'      # "working on it" messages
+    Hint    = 'DarkGray'  # explanations and side notes
+    Ok      = 'Green'
+    Warn    = 'Yellow'
+    Error   = 'Red'
+}
+
+# Windows Terminal and VS Code draw these symbols; the fonts of the old console
+# window may not, so it gets plain ASCII stand-ins. The [char] codes keep this
+# file itself plain ASCII.
+$FANCY = [bool]($env:WT_SESSION -or $env:TERM_PROGRAM -eq 'vscode')
+$GLYPH = @{
+    Running = $(if ($FANCY) { [string][char]0x25CF } else { '*' })   # filled dot
+    Stopped = $(if ($FANCY) { [string][char]0x25CB } else { '-' })   # hollow dot
+    Ok      = $(if ($FANCY) { [string][char]0x2713 } else { '+' })   # check mark
+    Warn    = '!'
+    Error   = $(if ($FANCY) { [string][char]0x2717 } else { 'x' })   # cross
+    Line    = $(if ($FANCY) { [string][char]0x2500 } else { '-' })   # box-drawing line
+}
+
+# Usable console width, kept between 40 and 100 columns.
+function Get-UiWidth {
+    $w = 80
+    try { $w = [Console]::WindowWidth - 1 } catch { }
+    return [math]::Max(40, [math]::Min(100, $w))
+}
+
+# A one-line result ("Ubuntu stopped") shown under the header of the NEXT
+# screen, instead of stopping on "Press any key". Errors still pause.
+$script:StatusLine = $null
+function Set-Status([string]$text, [string]$kind = 'Ok') { $script:StatusLine = @{ Text = $text; Kind = $kind } }
+
 function Show-Header([string]$subtitle = '') {
     try { Clear-Host } catch { }
-    Write-Host '================================================================' -ForegroundColor Cyan
-    Write-Host "                   WSL Control Panel  v$PANEL_VERSION" -ForegroundColor Cyan
-    if ($subtitle) { Write-Host "   $subtitle" -ForegroundColor Yellow }
-    Write-Host '================================================================' -ForegroundColor Cyan
+    Write-Host ' WSL Control Panel' -ForegroundColor $UI.Title -NoNewline
+    Write-Host "  v$PANEL_VERSION" -ForegroundColor $UI.Hint
+    if ($subtitle) { Write-Host " $subtitle" -ForegroundColor $UI.Heading }
+    Write-Host ($GLYPH.Line * (Get-UiWidth)) -ForegroundColor $UI.Title
+    if ($script:StatusLine) {
+        $k = $script:StatusLine.Kind
+        Write-Host " $($GLYPH[$k]) $($script:StatusLine.Text)" -ForegroundColor $UI[$k]
+        $script:StatusLine = $null
+    }
     Write-Host ''
+}
+
+# One menu line: "[K] Label - hint", with the key in the key colour and the
+# hint dimmed. $keyWidth / $labelWidth pad the columns so a menu whose keys
+# differ in length (Enter, 1-3, N) still lines up.
+function Write-MenuItem($key, [string]$label, [string]$hint = '', [int]$keyWidth = 0, [int]$labelWidth = 0) {
+    Write-Host '   [' -NoNewline -ForegroundColor $UI.Hint
+    Write-Host $key -NoNewline -ForegroundColor $UI.Key
+    Write-Host ('] ' + (' ' * [math]::Max(0, $keyWidth - ([string]$key).Length))) -NoNewline -ForegroundColor $UI.Hint
+    if ($hint) {
+        Write-Host $label.PadRight($labelWidth) -NoNewline
+        Write-Host " - $hint" -ForegroundColor $UI.Hint
+    } else {
+        Write-Host $label
+    }
 }
 
 function Pause-Console([string]$message = 'Press any key to continue...') {
     Write-Host ''
-    Write-Host " $message" -ForegroundColor DarkGray
+    Write-Host " $message" -ForegroundColor $UI.Hint
     if ([Console]::IsInputRedirected) { $null = Read-Host } else { $null = [Console]::ReadKey($true) }
 }
 
@@ -114,18 +172,18 @@ function Read-Secret([string]$prompt) {
 function Read-Folder([string]$what, [string]$default) {
     while ($true) {
         Write-Host ''
-        Write-Host " $what" -ForegroundColor Yellow
+        Write-Host " $what" -ForegroundColor $UI.Heading
         Write-Host "   Press ENTER to use:  $default"
         Write-Host '   Or type another FULL folder path (e.g. E:\Linux), or B to go back.'
         $v = (Read-Line ' Folder').Trim('"', "'")
         if ($v -eq '') { return $default }
         if ($v -ieq 'b') { return $null }
         if ($v -match '^(y|yes|n|no)$') {
-            Write-Host ' That is a yes/no word, not a folder. Press ENTER for the default, or type a full path.' -ForegroundColor Red
+            Write-Host ' That is a yes/no word, not a folder. Press ENTER for the default, or type a full path.' -ForegroundColor $UI.Error
             continue
         }
         if ($v -notmatch '^([A-Za-z]:\\|\\\\)') {
-            Write-Host ' Please type a FULL path that starts with a drive letter, e.g. E:\Linux' -ForegroundColor Red
+            Write-Host ' Please type a FULL path that starts with a drive letter, e.g. E:\Linux' -ForegroundColor $UI.Error
             continue
         }
         if ($v.Length -gt 3) { $v = $v.TrimEnd('\') }
@@ -142,7 +200,7 @@ function Read-YesNo([string]$question, [bool]$default) {
         if ($v -eq '') { return $default }
         if ($v -eq 'Y' -or $v -eq 'YES') { return $true }
         if ($v -eq 'N' -or $v -eq 'NO') { return $false }
-        Write-Host ' Please answer Y or N.' -ForegroundColor Red
+        Write-Host ' Please answer Y or N.' -ForegroundColor $UI.Error
     }
 }
 
@@ -356,7 +414,7 @@ function Get-DistroVhdInfo([string]$distroName) {
 function Stop-Kex([string]$distro) {
     $has = Invoke-WslQuiet @('-d', $distro, '--', 'bash', '-lc', 'command -v kex >/dev/null 2>&1')
     if ($has.ExitCode -ne 0) { return }
-    Write-Host " Stopping Win-KeX on $distro ..." -ForegroundColor DarkGray
+    Write-Host " Stopping Win-KeX on $distro ..." -ForegroundColor $UI.Hint
     # Look owners up by uid: "ps -o user=" cuts names longer than 8 characters
     # short (e.g. "shreyasn+"), and su would then fail for them.
     $cmd = 'for id in $(ps -o uid= -C Xtigervnc | sort -u); do [ "$id" = 0 ] && continue; u=$(getent passwd "$id" | cut -d: -f1); [ -n "$u" ] && su - "$u" -c ''cd ~ && kex --stop'' >/dev/null 2>&1; done; true'
@@ -380,7 +438,7 @@ function Stop-Distro([string]$distro) {
 # If no distro is left running, collapse the whole WSL VM so its RAM is freed.
 function Free-WslVm {
     if ((Get-RunningDistros).Count -eq 0) {
-        Write-Host ' No distros left running - freeing the WSL VM memory...' -ForegroundColor DarkGray
+        Write-Host ' No distros left running - freeing the WSL VM memory...' -ForegroundColor $UI.Hint
         Invoke-WslQuiet @('--shutdown') | Out-Null
     }
 }
@@ -397,7 +455,7 @@ function Confirm-WslReady {
     if ((Test-WslFiles) -and ((Invoke-WslQuiet @('--version')).ExitCode -eq 0)) { return $true }
 
     Show-Header 'First-time setup - installing WSL'
-    Write-Host ' WSL (Windows Subsystem for Linux) is not set up on this PC yet.' -ForegroundColor Yellow
+    Write-Host ' WSL (Windows Subsystem for Linux) is not set up on this PC yet.' -ForegroundColor $UI.Warn
     Write-Host ' This is the one-time step that lets you run Linux on Windows.'
     Write-Host ''
     Write-Host ' What will happen:'
@@ -410,9 +468,9 @@ function Confirm-WslReady {
     if (-not (Read-YesNo 'Set up WSL now?' $true)) { return $false }
 
     $setup = @'
-Write-Host '================================================================' -ForegroundColor Cyan
-Write-Host '   Installing WSL (administrator)' -ForegroundColor Cyan
-Write-Host '================================================================' -ForegroundColor Cyan
+Write-Host '================================================================' -ForegroundColor $UI.Info
+Write-Host '   Installing WSL (administrator)' -ForegroundColor $UI.Info
+Write-Host '================================================================' -ForegroundColor $UI.Info
 Write-Host ''
 Write-Host 'Turning on the Windows features WSL needs (safe if already on)...'
 dism /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
@@ -431,28 +489,28 @@ Write-Host ''
 Write-Host 'Press any key to close this window...'
 $null = [Console]::ReadKey($true)
 '@
-    Write-Host "`n Asking for administrator rights - please click YES on the prompt..." -ForegroundColor Cyan
+    Write-Host "`n Asking for administrator rights - please click YES on the prompt..." -ForegroundColor $UI.Info
     if (-not (Invoke-ElevatedScript $setup)) {
-        Write-Host ' The administrator prompt was declined or failed.' -ForegroundColor Red
+        Write-Host ' The administrator prompt was declined or failed.' -ForegroundColor $UI.Error
     }
 
-    Write-Host "`n Checking whether WSL is ready..." -ForegroundColor Cyan
+    Write-Host "`n Checking whether WSL is ready..." -ForegroundColor $UI.Info
     $state = 'READY'
     if (-not (Test-WslFiles)) { $state = 'MISSING' }
     if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') { $state = 'RESTART' }
     if ($state -eq 'READY' -and (Invoke-WslQuiet @('--version')).ExitCode -ne 0) { $state = 'RESTART' }
 
     if ($state -eq 'READY') {
-        Write-Host "`n WSL is installed and ready. Use [N] in the panel to download a Linux distro." -ForegroundColor Green
+        Write-Host "`n WSL is installed and ready. Use [N] in the panel to download a Linux distro." -ForegroundColor $UI.Ok
         Pause-Console
         return $true
     }
     if ($state -eq 'MISSING') {
-        Write-Host "`n WSL did not get installed. This happens if you clicked NO on the" -ForegroundColor Red
+        Write-Host "`n WSL did not get installed. This happens if you clicked NO on the" -ForegroundColor $UI.Error
         Write-Host ' security prompt, or the administrator window showed an error (for'
         Write-Host ' example no internet). Run this panel again to retry.'
     } else {
-        Write-Host "`n WSL was set up but Windows needs a RESTART to finish enabling it." -ForegroundColor Yellow
+        Write-Host "`n WSL was set up but Windows needs a RESTART to finish enabling it." -ForegroundColor $UI.Warn
         Write-Host '   1. Restart your PC.'
         Write-Host '   2. Run this WSL Control Panel again.'
         Write-Host '   3. Use [N] to download your first Linux distro.'
@@ -551,27 +609,27 @@ function Set-LinuxPassword([string]$distro, [string]$user, [string]$password) {
 # Creates (or updates) the Linux user inside the distro: sudo/wheel rights and
 # an XFCE session file, then sets the password. Returns $true on success.
 function New-LinuxUser([string]$distro, [string]$user, [string]$password) {
-    Write-Host "`n Creating user '$user' inside $distro - please wait, this can take a minute or two..." -ForegroundColor Cyan
+    Write-Host "`n Creating user '$user' inside $distro - please wait, this can take a minute or two..." -ForegroundColor $UI.Info
     $res = Invoke-WslScript $distro 'root' (Get-ScriptWithSession 'create-user.sh') @($user)
-    foreach ($l in $res.Output) { Write-Host "   $l" -ForegroundColor DarkGray }
+    foreach ($l in $res.Output) { Write-Host "   $l" -ForegroundColor $UI.Hint }
     if ($res.ExitCode -ne 0) {
-        Write-Host " The user could not be created (exit code $($res.ExitCode))." -ForegroundColor Red
+        Write-Host " The user could not be created (exit code $($res.ExitCode))." -ForegroundColor $UI.Error
         return $false
     }
-    Write-Host '   - setting the password...' -ForegroundColor DarkGray
+    Write-Host '   - setting the password...' -ForegroundColor $UI.Hint
     if (-not (Set-LinuxPassword $distro $user $password)) {
-        Write-Host ' Could not set the user/password in the distro.' -ForegroundColor Red
+        Write-Host ' Could not set the user/password in the distro.' -ForegroundColor $UI.Error
         return $false
     }
-    Write-Host ' Done - the Linux account is ready.' -ForegroundColor Green
+    Write-Host ' Done - the Linux account is ready.' -ForegroundColor $UI.Ok
     return $true
 }
 
 function Read-NewPassword([string]$who, [string]$what = 'password') {
     $p1 = Read-Secret " Enter $what for '$who'"
     $p2 = Read-Secret ' Confirm password'
-    if ($p1 -ne $p2) { Write-Host ' The two passwords did not match - nothing saved.' -ForegroundColor Red; return $null }
-    if (-not $p1)    { Write-Host ' The password cannot be empty.' -ForegroundColor Red; return $null }
+    if ($p1 -ne $p2) { Write-Host ' The two passwords did not match - nothing saved.' -ForegroundColor $UI.Error; return $null }
+    if (-not $p1)    { Write-Host ' The password cannot be empty.' -ForegroundColor $UI.Error; return $null }
     return $p1
 }
 
@@ -588,12 +646,12 @@ function Add-AccountInteractive([string]$distro, [string]$uname, [bool]$createIn
     $pw = Read-NewPassword $uname
     if ($null -eq $pw) { return $false }
     if ($createInLinux -and -not (New-LinuxUser $distro $uname $pw)) {
-        Write-Host ' Nothing saved. Open the distro as a Terminal to check it is healthy, then try again.' -ForegroundColor Yellow
+        Write-Host ' Nothing saved. Open the distro as a Terminal to check it is healthy, then try again.' -ForegroundColor $UI.Warn
         return $false
     }
     Save-EncryptedAccount $distro $uname $pw
-    Write-Host "`n Account '$uname' saved for $distro (encrypted with Windows DPAPI)." -ForegroundColor Green
-    if (-not $createInLinux) { Write-Host ' NOTE: this did NOT create the Linux user - it only remembers the login.' -ForegroundColor Yellow }
+    Write-Host "`n Account '$uname' saved for $distro (encrypted with Windows DPAPI)." -ForegroundColor $UI.Ok
+    if (-not $createInLinux) { Write-Host ' NOTE: this did NOT create the Linux user - it only remembers the login.' -ForegroundColor $UI.Warn }
     return $true
 }
 
@@ -605,7 +663,7 @@ function Confirm-AccountExists([string]$distro, $account) {
     if (-not $account) { return $true }
     if (Test-LinuxUserExists $distro $account.Username) { return $true }
     Write-Host ''
-    Write-Host " The saved account '$($account.Username)' does NOT exist inside $distro." -ForegroundColor Yellow
+    Write-Host " The saved account '$($account.Username)' does NOT exist inside $distro." -ForegroundColor $UI.Warn
     Write-Host ' (Usually because the distro was deleted and downloaded again - a fresh'
     Write-Host '  distro only has "root".) The panel can create it again now.'
     Write-Host ''
@@ -617,14 +675,14 @@ function Show-AccountMenu([string]$distro) {
     while ($true) {
         Show-Header "Manage Accounts for: $distro"
         $accounts = @(Get-SavedAccounts $distro)
-        Write-Host ' Saved accounts (used for auto-login):' -ForegroundColor Yellow
-        if ($accounts.Count -eq 0) { Write-Host '   (none saved yet)' -ForegroundColor DarkGray }
-        for ($i = 0; $i -lt $accounts.Count; $i++) { Write-Host "   [$($i + 1)] $($accounts[$i].Username)" }
+        Write-Host ' Saved accounts (used for auto-login):' -ForegroundColor $UI.Heading
+        if ($accounts.Count -eq 0) { Write-Host '   (none saved yet)' -ForegroundColor $UI.Hint }
+        for ($i = 0; $i -lt $accounts.Count; $i++) { Write-MenuItem ($i + 1) "$($accounts[$i].Username)" }
         Write-Host ''
-        Write-Host '   [A] Add an account       - save a login and (for a fresh distro) CREATE the Linux user'
-        Write-Host '   [P] Change a password    - changes it in Linux AND in the panel'
-        Write-Host '   [R] Remove a saved account'
-        Write-Host '   [B] Back'
+        Write-MenuItem 'A' 'Add an account      ' 'save a login and (for a fresh distro) CREATE the Linux user'
+        Write-MenuItem 'P' 'Change a password   ' 'changes it in Linux AND in the panel'
+        Write-MenuItem 'R' 'Remove a saved account'
+        Write-MenuItem 'B' 'Back'
         Write-Host ''
         $opt = (Read-Line ' Enter your choice').ToUpper()
 
@@ -633,38 +691,40 @@ function Show-AccountMenu([string]$distro) {
             Write-Host ''
             $uname = Read-Line ' Enter the Linux username'
             if ($uname -notmatch '^[a-z_][a-z0-9_-]{0,31}$') {
-                Write-Host ' Invalid username: use lowercase letters, digits, - and _, starting with a letter.' -ForegroundColor Red
+                Write-Host ' Invalid username: use lowercase letters, digits, - and _, starting with a letter.' -ForegroundColor $UI.Error
                 Pause-Console; continue
             }
             Write-Host ''
             Write-Host " Also CREATE this user inside $distro now?"
-            Write-Host '   [Y] Yes - fresh distro / new user. Makes the Linux user, gives it sudo'
-            Write-Host '       (admin) and sets up the XFCE desktop session.'
-            Write-Host '   [N] No  - the Linux user already exists; only remember it here.'
+            Write-MenuItem 'Y' 'Yes' 'fresh distro / new user. Makes the Linux user, gives it sudo'
+            Write-Host '       (admin) and sets up the XFCE desktop session.' -ForegroundColor $UI.Hint
+            Write-MenuItem 'N' 'No ' 'the Linux user already exists; only remember it here.'
             $mk = Read-YesNo 'Create the Linux user too?' $true
             try { [void](Add-AccountInteractive $distro $uname $mk) }
             catch [System.IO.EndOfStreamException] { throw }
-            catch { Write-Host " Error: $_" -ForegroundColor Red }
+            catch { Write-Host " Error: $_" -ForegroundColor $UI.Error }
             Pause-Console
         }
         elseif ($opt -eq 'P' -or $opt -eq 'R') {
-            if ($accounts.Count -eq 0) { Write-Host ' No accounts saved yet.' -ForegroundColor Yellow; Pause-Console; continue }
+            if ($accounts.Count -eq 0) { Set-Status 'No accounts saved yet - use [A] to add one.' 'Warn'; continue }
             $idx = Read-Line ' Enter the account number'
             $i = Get-ListIndex $idx $accounts.Count
             if ($i -lt 0) { continue }
             $target = $accounts[$i].Username
             if ($opt -eq 'R') {
                 Remove-SavedAccount $distro $target
-                Write-Host " Removed saved account '$target' (the Linux user is untouched)." -ForegroundColor Green
+                Set-Status "Removed saved account '$target' (the Linux user is untouched)."
+                continue
             } else {
                 Write-Host ''
                 $pw = Read-NewPassword $target 'the NEW password'
                 if ($null -ne $pw) {
                     if (Set-LinuxPassword $distro $target $pw) {
                         Save-EncryptedAccount $distro $target $pw
-                        Write-Host ' Password updated in Linux and in the panel.' -ForegroundColor Green
+                        Set-Status "Password for '$target' updated in Linux and in the panel."
+                        continue
                     } else {
-                        Write-Host " Linux refused the change (does '$target' exist inside $distro?). Nothing saved." -ForegroundColor Red
+                        Write-Host " Linux refused the change (does '$target' exist inside $distro?). Nothing saved." -ForegroundColor $UI.Error
                     }
                 }
             }
@@ -693,12 +753,12 @@ function Install-DesktopInDistro([string]$distro, [int]$port, [bool]$isKali) {
     # which is copied to data\logs afterwards so a failure can still be read.
     $log = '/var/log/wsl-panel-desktop-install.log'
     if ($isKali) {
-        Write-Host " Installing Kali's XFCE desktop + Win-KeX (about 1-2 GB - this can take a while)..." -ForegroundColor Yellow
+        Write-Host " Installing Kali's XFCE desktop + Win-KeX (about 1-2 GB - this can take a while)..." -ForegroundColor $UI.Info
         $cmd = '{ set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y kali-desktop-xfce dbus-x11 kali-win-kex; } 2>&1 | tee ' + $log + '; exit ${PIPESTATUS[0]}'
         $rc = Invoke-WslInline @('-d', $distro, '-u', 'root', '--', 'bash', '-lc', $cmd)
     } else {
-        Write-Host " Installing an XFCE desktop + xrdp (port $port) on $distro ..." -ForegroundColor Yellow
-        Write-Host ' (auto-detecting the package manager - this can take several minutes)' -ForegroundColor DarkGray
+        Write-Host " Installing an XFCE desktop + xrdp (port $port) on $distro ..." -ForegroundColor $UI.Info
+        Write-Host ' (auto-detecting the package manager - this can take several minutes)' -ForegroundColor $UI.Hint
         Write-Host ''
         # The installer is streamed in through stdin from a temp file (like the
         # old .bat did) so no command line has to carry it.
@@ -710,17 +770,17 @@ function Install-DesktopInDistro([string]$distro, [int]$port, [bool]$isKali) {
     }
     $saved = Save-DistroLog $distro $log 'desktop-install'
     if ($rc -eq 0) {
-        Write-Host "`n Desktop installation finished." -ForegroundColor Green
+        Write-Host "`n Desktop installation finished." -ForegroundColor $UI.Ok
         Start-Sleep -Seconds 2
         return $true
     }
-    Write-Host "`n The desktop install did not complete (exit code $rc). Common causes:" -ForegroundColor Red
+    Write-Host "`n The desktop install did not complete (exit code $rc). Common causes:" -ForegroundColor $UI.Error
     Write-Host '   - no internet connection inside the distro'
     Write-Host '   - the package manager is locked by another update running now'
     Write-Host '   - out of disk space'
     Write-Host '   - Arch: building xrdp from the AUR failed (prints AUR_BUILD_FAILED above)'
     Write-Host '   - an unrecognised package manager (prints UNKNOWN_PKG_MANAGER above)'
-    if ($saved) { Write-Host " The full output is saved in: $saved" -ForegroundColor Yellow }
+    if ($saved) { Write-Host " The full output is saved in: $saved" -ForegroundColor $UI.Warn }
     else { Write-Host ' Open the distro as a Terminal to read the output above, then try again.' }
     Pause-Console
     return $false
@@ -748,14 +808,14 @@ function Start-KexDesktop([string]$distro, $account) {
         $uid = Invoke-WslQuiet @('-d', $distro, '-e', 'id', '-u')
         if ($uid.Output.Count -gt 0 -and $uid.Output[0] -eq '0') {
             Write-Host ''
-            Write-Host " The Kali desktop (Win-KeX) cannot run as root, and $distro has no normal" -ForegroundColor Red
+            Write-Host " The Kali desktop (Win-KeX) cannot run as root, and $distro has no normal" -ForegroundColor $UI.Error
             Write-Host ' user as its default login yet. Fix: Manage Accounts -> [A] Add an account'
             Write-Host ' (answer Y), then open the Desktop using that account.'
             Pause-Console
             return
         }
     }
-    Write-Host " Starting the Kali (Win-KeX) desktop for $distro ..." -ForegroundColor Green
+    Write-Host " Starting the Kali (Win-KeX) desktop for $distro ..." -ForegroundColor $UI.Ok
     Write-Host ''
     Write-Host ' A console window will open:'
     Write-Host '   - FIRST time only: it asks for a one-time Win-KeX password (local only).'
@@ -769,7 +829,7 @@ function Start-KexDesktop([string]$distro, $account) {
     # to WSLg and popping an error window on Windows.
     $kexCmd = "cd ~ && unset WAYLAND_DISPLAY && { systemctl --user set-environment DISPLAY=:1 GDK_BACKEND=x11 XDG_SESSION_TYPE=x11 2>/dev/null; kex --win; }; echo; read -rp 'Desktop is in its own window. Press Enter to close this console. '"
     Start-Process -FilePath (Get-WslExe) -ArgumentList (Join-WinArgs (@('-d', $distro) + $userArgs + @('--', 'bash', '-lc', $kexCmd)))
-    Write-Host "`n If nothing appears, read the console window for the error." -ForegroundColor DarkGray
+    Write-Host "`n If nothing appears, read the console window for the error." -ForegroundColor $UI.Hint
     Pause-Console
 }
 
@@ -784,7 +844,7 @@ function Start-DistroDesktop([string]$distro, $account, [bool]$afterInstall = $f
     Show-Header "Opening Desktop for $distro"
     if (-not (Confirm-AccountExists $distro $account)) { return }
 
-    Write-Host " Detecting desktop type for $distro ..." -ForegroundColor DarkGray
+    Write-Host " Detecting desktop type for $distro ..." -ForegroundColor $UI.Hint
     # kex alone is not enough: on a minimal Kali, kali-win-kex installs without
     # the XFCE it runs, and the VNC server starts, finds no desktop and exits.
     $hasKex  = ((Invoke-WslQuiet @('-d', $distro, '--', 'bash', '-lc', 'command -v kex >/dev/null 2>&1')).ExitCode -eq 0)
@@ -802,14 +862,14 @@ function Start-DistroDesktop([string]$distro, $account, [bool]$afterInstall = $f
             if ($rd -ne $distro -and (Test-XrdpListening $rd $port)) { $conflict = $rd; break }
         }
         if ($conflict) {
-            Write-Host "`n '$conflict' is running its own desktop on port $port. WSL distros share one" -ForegroundColor Yellow
+            Write-Host "`n '$conflict' is running its own desktop on port $port. WSL distros share one" -ForegroundColor $UI.Warn
             Write-Host ' network, so two desktops cannot use the same port.'
-            Write-Host "   [1] Give $distro a different free port (keeps both desktops open)"
-            Write-Host "   [2] Close '$conflict' now (its desktop session ends - save work first)"
-            Write-Host '   [C] Cancel'
+            Write-MenuItem '1' "Give $distro a different free port (keeps both desktops open)"
+            Write-MenuItem '2' "Close '$conflict' now (its desktop session ends - save work first)"
+            Write-MenuItem 'C' 'Cancel'
             $ch = (Read-Line ' Choice [1]').ToUpper()
             if ($ch -eq '2') {
-                Write-Host " Closing $conflict ..." -ForegroundColor Yellow
+                Write-Host " Closing $conflict ..." -ForegroundColor $UI.Info
                 Stop-Distro $conflict
             } elseif ($ch -eq '' -or $ch -eq '1') {
                 $busy = @{}
@@ -821,11 +881,11 @@ function Start-DistroDesktop([string]$distro, $account, [bool]$afterInstall = $f
                 while ($busy.ContainsKey([string]$np)) { $np++ }
                 Set-DistroPort $distro $np
                 $port = $np
-                Write-Host " $distro will use port $port from now on." -ForegroundColor Green
+                Write-Host " $distro will use port $port from now on." -ForegroundColor $UI.Ok
             } else { return }
         }
 
-        Write-Host " Waking $distro and starting the desktop server (xrdp, port $port)..." -ForegroundColor Cyan
+        Write-Host " Waking $distro and starting the desktop server (xrdp, port $port)..." -ForegroundColor $UI.Info
         # Point xrdp at our port (only the [Globals] "port=<digits>" line - the
         # Xorg/Xvnc sections have "port=-1" which must stay). A port change needs a
         # restart; otherwise "start" keeps any desktop session that is still open.
@@ -856,19 +916,19 @@ fi
 
     # No desktop server found: offer to install one.
     if ($afterInstall) {
-        Write-Host "`n The desktop was installed but is still not reachable on port $port." -ForegroundColor Red
+        Write-Host "`n The desktop was installed but is still not reachable on port $port." -ForegroundColor $UI.Error
         Write-Host ' Open the distro as a Terminal and check the xrdp service, then try again.'
         Pause-Console
         return
     }
     Write-Host ''
-    Write-Host ' This distro has no desktop server the panel knows how to open.' -ForegroundColor Yellow
+    Write-Host ' This distro has no desktop server the panel knows how to open.' -ForegroundColor $UI.Warn
     Write-Host ' Most distros open via xrdp; Kali opens via Win-KeX. I can download and install one now'
     Write-Host ' (needs internet and a few hundred MB; it can take several minutes).'
     Write-Host ''
-    Write-Host '   [I] Install the desktop now (auto)'
-    Write-Host '   [T] Open as a Terminal instead'
-    Write-Host '   [B] Back'
+    Write-MenuItem 'I' 'Install the desktop now (auto)'
+    Write-MenuItem 'T' 'Open as a Terminal instead'
+    Write-MenuItem 'B' 'Back'
     $nd = (Read-Line ' Enter your choice').ToUpper()
     if ($nd -eq 'T') { Start-DistroTerminal $distro $account }
     elseif ($nd -eq 'I') {
@@ -888,17 +948,17 @@ function Open-RemoteDesktop([string]$distro, $account, [int]$port) {
     }
     Set-Content -LiteralPath $rdp -Value $lines -Force
     Start-KeepAlive $distro
-    Write-Host ' Opening Windows Remote Desktop (mstsc)...' -ForegroundColor Green
+    Write-Host ' Opening Windows Remote Desktop (mstsc)...' -ForegroundColor $UI.Ok
     Start-Process -FilePath 'mstsc.exe' -ArgumentList (Join-WinArgs @($rdp))
     # The .rdp file holds the encrypted login: delete it once mstsc has read it.
     Start-Sleep -Seconds 5
     Remove-Item -LiteralPath $rdp -Force -ErrorAction SilentlyContinue
-    if (-not $account) { Write-Host ' Log in with your Linux username and password.' -ForegroundColor Yellow }
+    if (-not $account) { Write-Host ' Log in with your Linux username and password.' -ForegroundColor $UI.Warn }
     Pause-Console
 }
 
 function Start-DistroTerminal([string]$distro, $account) {
-    Write-Host "`n Opening a terminal window for $distro ..." -ForegroundColor Cyan
+    Write-Host "`n Opening a terminal window for $distro ..." -ForegroundColor $UI.Info
     $a = @('-d', $distro)
     if ($account -and $account.Username) { $a += @('-u', $account.Username) }
     $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
@@ -913,23 +973,23 @@ function Compact-DistroDisk([string]$distro) {
     Show-Header "Compact the virtual hard disk: $distro"
     $vhd = Get-DistroVhdInfo $distro
     if (-not $vhd.Exists) {
-        Write-Host " Could not find ext4.vhdx for $distro." -ForegroundColor Red
+        Write-Host " Could not find ext4.vhdx for $distro." -ForegroundColor $UI.Error
         Pause-Console; return
     }
     Write-Host " Disk file:     $($vhd.VhdxPath)"
-    Write-Host " Current size:  $($vhd.SizeGB) GB" -ForegroundColor Yellow
+    Write-Host " Current size:  $($vhd.SizeGB) GB" -ForegroundColor $UI.Heading
     Write-Host ''
     Write-Host ' A WSL2 disk grows as files are added but never shrinks when you delete'
     Write-Host ' files inside Linux. Compacting hands that unused space back to Windows.'
     Write-Host ' This stops ALL WSL distros (wsl --shutdown) and needs administrator rights.'
     Write-Host ''
-    Write-Host '   [1] Compact now (recommended)'
-    Write-Host '   [2] Turn on sparse mode (automatic, but disabled by newer WSL versions)'
-    Write-Host '   [B] Back'
+    Write-MenuItem '1' 'Compact now (recommended)'
+    Write-MenuItem '2' 'Turn on sparse mode (automatic, but disabled by newer WSL versions)'
+    Write-MenuItem 'B' 'Back'
     $m = (Read-Line ' Choose [1]').ToUpper()
     if ($m -eq 'B') { return }
 
-    Write-Host "`n Shutting WSL down so the disk file is free..." -ForegroundColor Yellow
+    Write-Host "`n Shutting WSL down so the disk file is free..." -ForegroundColor $UI.Info
     Stop-KexAll
     Invoke-WslQuiet @('--shutdown') | Out-Null
     Start-Sleep -Seconds 3
@@ -937,30 +997,27 @@ function Compact-DistroDisk([string]$distro) {
     if ($m -eq '2') {
         $res = Invoke-WslQuiet @('--manage', $distro, '--set-sparse', 'true')
         if ($res.ExitCode -eq 0) {
-            Write-Host ' Sparse mode enabled - WSL will now reclaim free space by itself.' -ForegroundColor Green
-            Pause-Console; return
+            Set-Status 'Sparse mode is on - WSL now reclaims free space by itself.'
+            return
         }
-        Write-Host ' This WSL version refused sparse mode - compacting instead.' -ForegroundColor Yellow
+        Write-Host ' This WSL version refused sparse mode - compacting instead.' -ForegroundColor $UI.Warn
     }
 
     # diskpart reads its commands from a pipe, so no script file is written.
     $vhdArg = $vhd.VhdxPath -replace "'", "''"
     $compact = "@('select vdisk file=`"$vhdArg`"', 'attach vdisk readonly', 'compact vdisk', 'detach vdisk', 'exit') | diskpart.exe"
-    Write-Host ' Compacting with diskpart (a Windows security prompt may appear - click YES)...' -ForegroundColor Cyan
+    Write-Host ' Compacting with diskpart (a Windows security prompt may appear - click YES)...' -ForegroundColor $UI.Info
     if (Test-IsAdmin) {
         @("select vdisk file=`"$($vhd.VhdxPath)`"", 'attach vdisk readonly', 'compact vdisk', 'detach vdisk', 'exit') | diskpart.exe | Out-Host
     } elseif (-not (Invoke-ElevatedScript $compact)) {
-        Write-Host ' The administrator prompt was declined or failed - nothing was changed.' -ForegroundColor Red
+        Write-Host ' The administrator prompt was declined or failed - nothing was changed.' -ForegroundColor $UI.Error
         Pause-Console; return
     }
 
     $after = Get-DistroVhdInfo $distro
     $saved = [math]::Round($vhd.SizeGB - $after.SizeGB, 2)
-    Write-Host ''
-    Write-Host " Size now: $($after.SizeGB) GB (was $($vhd.SizeGB) GB)" -ForegroundColor Green
-    if ($saved -gt 0) { Write-Host " Reclaimed $saved GB of disk space." -ForegroundColor Green }
-    else { Write-Host ' Nothing more could be reclaimed (or the compaction did not run).' -ForegroundColor Yellow }
-    Pause-Console
+    if ($saved -gt 0) { Set-Status "Reclaimed $saved GB - the disk is now $($after.SizeGB) GB (was $($vhd.SizeGB) GB)." }
+    else { Set-Status "Nothing more could be reclaimed - the disk is $($after.SizeGB) GB." 'Warn' }
 }
 
 # ------------------------------------------------------------------------------
@@ -970,7 +1027,7 @@ function Toggle-DistroSystemd([string]$distro) {
     Show-Header "systemd: $distro"
     $chk = Invoke-WslQuiet @('-d', $distro, '-u', 'root', '-e', 'sh', '-c', "grep -Eq '^[[:space:]]*systemd[[:space:]]*=[[:space:]]*true' /etc/wsl.conf 2>/dev/null && echo ENABLED || echo DISABLED")
     $enabled = ($chk.Output.Count -gt 0 -and $chk.Output[0] -eq 'ENABLED')
-    Write-Host " systemd is currently: $(if ($enabled) { 'ENABLED' } else { 'DISABLED' })" -ForegroundColor Yellow
+    Write-Host " systemd is currently: $(if ($enabled) { 'ENABLED' } else { 'DISABLED' })" -ForegroundColor $UI.Heading
     Write-Host ''
     Write-Host ' systemd is the standard Linux service manager. With it on, services (Docker,'
     Write-Host ' SSH, cron, databases) start properly. It is set in /etc/wsl.conf and takes'
@@ -993,10 +1050,9 @@ fi
 '@
     }
     $res = Invoke-WslScript $distro 'root' $s
-    if ($res.ExitCode -ne 0) { Write-Host ' Could not edit /etc/wsl.conf.' -ForegroundColor Red; Pause-Console; return }
+    if ($res.ExitCode -ne 0) { Write-Host ' Could not edit /etc/wsl.conf.' -ForegroundColor $UI.Error; Pause-Console; return }
     Stop-Distro $distro
-    Write-Host " Done. $distro was stopped - systemd is $(if ($enabled) { 'off' } else { 'on' }) the next time it starts." -ForegroundColor Green
-    Pause-Console
+    Set-Status "systemd is $(if ($enabled) { 'off' } else { 'on' }) from the next start ($distro was stopped to apply it)."
 }
 
 # ------------------------------------------------------------------------------
@@ -1007,26 +1063,26 @@ function Show-OpenMenu([string]$distro) {
     $accounts = @(Get-SavedAccounts $distro)
     $account = $null
     if ($accounts.Count -gt 0) {
-        Write-Host ' Choose an account:' -ForegroundColor Yellow
-        for ($i = 0; $i -lt $accounts.Count; $i++) { Write-Host "   [$($i + 1)] $($accounts[$i].Username)" }
-        Write-Host '   [N] Open WITHOUT a saved account (you type your login yourself)'
-        Write-Host '   [B] Back'
+        Write-Host ' Choose an account:' -ForegroundColor $UI.Heading
+        for ($i = 0; $i -lt $accounts.Count; $i++) { Write-MenuItem ($i + 1) "$($accounts[$i].Username)" }
+        Write-MenuItem 'N' 'Open WITHOUT a saved account (you type your login yourself)'
+        Write-MenuItem 'B' 'Back'
         Write-Host ''
         $ch = (Read-Line ' Select [1]').ToUpper()
         if ($ch -eq 'B') { return }
         if ($ch -eq '') { $ch = '1' }
         $i = Get-ListIndex $ch $accounts.Count
         if ($i -ge 0) { $account = $accounts[$i] }
-        elseif ($ch -ne 'N') { Write-Host ' Not a valid choice.' -ForegroundColor Red; Pause-Console; return }
+        elseif ($ch -ne 'N') { Write-Host ' Not a valid choice.' -ForegroundColor $UI.Error; Pause-Console; return }
     } else {
-        Write-Host ' No saved account yet. Use Manage Accounts -> [A] to create one (needed for' -ForegroundColor DarkGray
-        Write-Host ' a fresh distro, which only has "root").' -ForegroundColor DarkGray
+        Write-Host ' No saved account yet. Use Manage Accounts -> [A] to create one (needed for' -ForegroundColor $UI.Hint
+        Write-Host ' a fresh distro, which only has "root").' -ForegroundColor $UI.Hint
     }
 
     Write-Host ''
-    Write-Host '   [1] Desktop  - full XFCE desktop (Kali: Win-KeX window; others: Remote Desktop)'
-    Write-Host '   [2] Terminal - command-line window (fastest; no desktop needed)'
-    Write-Host '   [B] Back'
+    Write-MenuItem '1' 'Desktop ' 'full XFCE desktop (Kali: Win-KeX window; others: Remote Desktop)'
+    Write-MenuItem '2' 'Terminal' 'command-line window (fastest; no desktop needed)'
+    Write-MenuItem 'B' 'Back'
     Write-Host ''
     $m = (Read-Line ' Enter your choice [1]').ToUpper()
     if ($m -eq '' -or $m -eq '1') { Start-DistroDesktop $distro $account }
@@ -1042,31 +1098,32 @@ function Show-DistroMenu([string]$distro) {
         $running = ($cur.State -eq 'Running')
         $vhd = Get-DistroVhdInfo $distro
         Show-Header "Manage: $distro"
-        Write-Host ' State:      ' -NoNewline
-        if ($running) { Write-Host 'RUNNING' -ForegroundColor Green } else { Write-Host $cur.State.ToUpper() -ForegroundColor DarkGray }
-        Write-Host " Disk size:  $($vhd.SizeGB) GB"
-        Write-Host " xrdp port:  $(Get-DistroPort $distro)"
-        Write-Host '----------------------------------------------------------------' -ForegroundColor DarkGray
+        $stateColour = $(if ($running) { $UI.Ok } else { $UI.Hint })
+        Write-Host ' State      ' -NoNewline -ForegroundColor $UI.Hint
+        Write-Host "$(if ($running) { $GLYPH.Running } else { $GLYPH.Stopped }) $($cur.State.ToLower())" -ForegroundColor $stateColour
+        Write-Host ' Disk size  ' -NoNewline -ForegroundColor $UI.Hint
+        Write-Host ('{0:N1} GB' -f [double]$vhd.SizeGB)
+        Write-Host ' xrdp port  ' -NoNewline -ForegroundColor $UI.Hint
+        Write-Host (Get-DistroPort $distro)
         Write-Host ''
-        Write-Host '   [O] Open            - pick an account, then Desktop or Terminal'
-        if ($running) { Write-Host '   [C] Close           - "wsl --terminate", frees its RAM' }
-        Write-Host '   [A] Accounts        - add, change password, remove saved logins'
-        Write-Host '   [P] xrdp port       - change the Remote Desktop port for this distro'
-        Write-Host '   [K] Compact disk    - give unused ext4.vhdx space back to Windows'
-        Write-Host '   [Y] systemd         - turn systemd on/off in /etc/wsl.conf'
-        Write-Host '   [D] Delete          - "wsl --unregister" - ERASES it (permanent!)'
-        Write-Host '   [B] Back'
+        Write-MenuItem 'O' 'Open           ' 'pick an account, then Desktop or Terminal'
+        if ($running) { Write-MenuItem 'C' 'Close          ' '"wsl --terminate", frees its RAM' }
+        Write-MenuItem 'A' 'Accounts       ' 'add, change password, remove saved logins'
+        Write-MenuItem 'P' 'xrdp port      ' 'change the Remote Desktop port for this distro'
+        Write-MenuItem 'K' 'Compact disk   ' 'give unused ext4.vhdx space back to Windows'
+        Write-MenuItem 'Y' 'systemd        ' 'turn systemd on/off in /etc/wsl.conf'
+        Write-MenuItem 'D' 'Delete         ' '"wsl --unregister" - ERASES it (permanent!)'
+        Write-MenuItem 'B' 'Back'
         Write-Host ''
         $opt = (Read-Line ' Enter your choice').ToUpper()
 
         if ($opt -eq 'B') { return }
         elseif ($opt -eq 'O') { Show-OpenMenu $distro }
         elseif ($opt -eq 'C' -and $running) {
-            Write-Host "`n Shutting down $distro ..." -ForegroundColor Yellow
+            Write-Host "`n Shutting down $distro ..." -ForegroundColor $UI.Info
             Stop-Distro $distro
             Free-WslVm
-            Write-Host " Done - $distro is stopped." -ForegroundColor Green
-            Pause-Console
+            Set-Status "$distro is stopped."
         }
         elseif ($opt -eq 'A') { Show-AccountMenu $distro }
         elseif ($opt -eq 'P') {
@@ -1074,32 +1131,29 @@ function Show-DistroMenu([string]$distro) {
             if ($np -match '^\d{1,5}$' -and [int]$np -ge 1024 -and [int]$np -le 65535) {
                 $problem = Get-PortProblem $distro ([int]$np)
                 if ($problem) {
-                    Write-Host " $problem Pick another port." -ForegroundColor Red
+                    Set-Status "$problem Pick another port." 'Error'
                 } else {
                     Set-DistroPort $distro ([int]$np)
-                    Write-Host " Port set to $np. It is applied the next time you open the desktop." -ForegroundColor Green
+                    Set-Status "Port set to $np - used the next time you open the desktop."
                 }
-            } else { Write-Host ' Not a valid port.' -ForegroundColor Red }
-            Pause-Console
+            } else { Set-Status "'$np' is not a port between 1024 and 65535." 'Error' }
         }
         elseif ($opt -eq 'K') { Compact-DistroDisk $distro }
         elseif ($opt -eq 'Y') { Toggle-DistroSystemd $distro }
         elseif ($opt -eq 'D') {
             Write-Host ''
-            Write-Host " WARNING: this permanently erases '$distro' and ALL of its files." -ForegroundColor Red
+            Write-Host " WARNING: this permanently erases '$distro' and ALL of its files." -ForegroundColor $UI.Error
             $conf = Read-Line " Type the distro name exactly to confirm ($distro)"
             if ($conf -ceq $distro) {
-                Write-Host "`n Deleting $distro ..." -ForegroundColor Yellow
+                Write-Host "`n Deleting $distro ..." -ForegroundColor $UI.Info
                 Invoke-WslQuiet @('--unregister', $distro) | Out-Null
                 # Saved accounts and the port belong to the deleted distro.
                 Remove-Item -LiteralPath (Get-AccountFile $distro) -Force -ErrorAction SilentlyContinue
                 Remove-Item -LiteralPath (Get-PortFile $distro) -Force -ErrorAction SilentlyContinue
-                Write-Host " Done - $distro was deleted." -ForegroundColor Green
-                Pause-Console
+                Set-Status "$distro was deleted."
                 return
             }
-            Write-Host ' Cancelled - nothing was deleted.' -ForegroundColor DarkGray
-            Pause-Console
+            Set-Status 'Cancelled - nothing was deleted.' 'Warn'
         }
     }
 }
@@ -1110,19 +1164,19 @@ function Show-DistroMenu([string]$distro) {
 function Export-DistroMenu {
     Show-Header 'Back up a distro (wsl --export)'
     $distros = @(Get-WslDistros | Where-Object { -not $_.IsSystem })
-    if ($distros.Count -eq 0) { Write-Host ' No distros installed - nothing to back up.' -ForegroundColor DarkGray; Pause-Console; return }
+    if ($distros.Count -eq 0) { Set-Status 'No distros installed - nothing to back up.' 'Warn'; return }
 
-    Write-Host ' Which distro should be backed up?' -ForegroundColor Yellow
-    for ($i = 0; $i -lt $distros.Count; $i++) { Write-Host "   [$($i + 1)] $($distros[$i].Name)" }
-    Write-Host '   [B] Back'
+    Write-Host ' Which distro should be backed up?' -ForegroundColor $UI.Heading
+    for ($i = 0; $i -lt $distros.Count; $i++) { Write-MenuItem ($i + 1) "$($distros[$i].Name)" }
+    Write-MenuItem 'B' 'Back'
     $c = Read-Line ' Enter your choice'
     $pick = Get-ListIndex $c $distros.Count
     if ($pick -lt 0) { return }
     $name = $distros[$pick].Name
 
     Write-Host ''
-    Write-Host '   [1] .tar  - works on any WSL machine'
-    Write-Host '   [2] .vhdx - fastest, an exact copy of the disk'
+    Write-MenuItem '1' '.tar ' 'works on any WSL machine'
+    Write-MenuItem '2' '.vhdx' 'fastest, an exact copy of the disk'
     $ext = $(if ((Read-Line ' Format [1]') -eq '2') { 'vhdx' } else { 'tar' })
 
     $dir = Read-Folder 'Where should the backup be saved?' $Global:Config.BackupBase
@@ -1131,20 +1185,20 @@ function Export-DistroMenu {
     $file = Join-Path $dir "${name}_$stamp.$ext"
 
     Write-Host ''
-    Write-Host " This will STOP $name (an open desktop/terminal closes - save your work)," -ForegroundColor Yellow
+    Write-Host " This will STOP $name (an open desktop/terminal closes - save your work)," -ForegroundColor $UI.Warn
     Write-Host " then save it all to: $file"
     if (-not (Read-YesNo 'Start the backup?' $false)) { return }
 
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     if ($distros[$pick].State -eq 'Running') { Write-Host " Stopping $name ..."; Stop-Distro $name }
 
-    Write-Host ' Exporting - please wait (can take a few minutes)...' -ForegroundColor Cyan
+    Write-Host ' Exporting - please wait (can take a few minutes)...' -ForegroundColor $UI.Info
     $a = @('--export', $name, $file)
     if ($ext -eq 'vhdx') { $a += '--vhd' }
     $rc = Invoke-WslInline $a
     if ($rc -eq 0 -and (Test-Path -LiteralPath $file)) {
         $gb = [math]::Round((Get-Item -LiteralPath $file).Length / 1GB, 2)
-        Write-Host "`n Done - backup saved ($gb GB):" -ForegroundColor Green
+        Write-Host "`n Done - backup saved ($gb GB):" -ForegroundColor $UI.Ok
         Write-Host "   $file"
         Write-Host ''
         Write-Host ' NOTE: saved panel accounts are NOT in the backup (their passwords are locked'
@@ -1152,7 +1206,7 @@ function Export-DistroMenu {
         Write-Host ' answering N (the Linux user already exists inside the backup).'
     } else {
         Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
-        Write-Host "`n The backup FAILED (exit code $rc). Common causes: not enough free space in" -ForegroundColor Red
+        Write-Host "`n The backup FAILED (exit code $rc). Common causes: not enough free space in" -ForegroundColor $UI.Error
         Write-Host " $dir, or that folder cannot be written to."
     }
     Free-WslVm
@@ -1166,15 +1220,15 @@ function Import-DistroMenu {
     if (Test-Path -LiteralPath $dir) {
         $files = @(Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Extension -in '.tar', '.vhdx' } | Sort-Object LastWriteTime -Descending)
     }
-    Write-Host " Backups found in ${dir} (newest first):" -ForegroundColor Yellow
-    if ($files.Count -eq 0) { Write-Host '   (none there)' -ForegroundColor DarkGray }
+    Write-Host " Backups found in ${dir} (newest first):" -ForegroundColor $UI.Heading
+    if ($files.Count -eq 0) { Write-Host '   (none there)' -ForegroundColor $UI.Hint }
     $shown = [math]::Min(15, $files.Count)
     for ($i = 0; $i -lt $shown; $i++) {
-        Write-Host "   [$($i + 1)] $($files[$i].Name)  ($([math]::Round($files[$i].Length / 1GB, 2)) GB)"
+        Write-MenuItem ($i + 1) "$($files[$i].Name)  ($([math]::Round($files[$i].Length / 1GB, 2)) GB)"
     }
     Write-Host ''
-    Write-Host '   [P] Type the full path to a .tar / .vhdx file somewhere else (e.g. a USB)'
-    Write-Host '   [B] Back'
+    Write-MenuItem 'P' 'Type the full path to a .tar / .vhdx file somewhere else (e.g. a USB)'
+    Write-MenuItem 'B' 'Back'
     $c = Read-Line ' Enter your choice'
     if (-not $c -or $c.ToUpper() -eq 'B') { return }
 
@@ -1186,7 +1240,7 @@ function Import-DistroMenu {
         $selected = $files[$fi].FullName
     }
     if (-not $selected -or -not (Test-Path -LiteralPath $selected -PathType Leaf)) {
-        Write-Host ' File not found or invalid choice.' -ForegroundColor Red; Pause-Console; return
+        Write-Host ' File not found or invalid choice.' -ForegroundColor $UI.Error; Pause-Console; return
     }
 
     # Suggest the original name: the file name minus the _date_time part.
@@ -1194,11 +1248,11 @@ function Import-DistroMenu {
     $name = Read-Line " Name for the restored distro [$def]"
     if (-not $name) { $name = $def }
     if (-not (Test-DistroName $name)) {
-        Write-Host ' A distro name can only use letters, digits, dot, - and _ (no spaces).' -ForegroundColor Red
+        Write-Host ' A distro name can only use letters, digits, dot, - and _ (no spaces).' -ForegroundColor $UI.Error
         Pause-Console; return
     }
     if (Get-WslDistros | Where-Object { $_.Name -eq $name }) {
-        Write-Host " A distro called '$name' is already installed. Restore under a different" -ForegroundColor Red
+        Write-Host " A distro called '$name' is already installed. Restore under a different" -ForegroundColor $UI.Error
         Write-Host " name (e.g. $name-restored) or delete the existing one first."
         Pause-Console; return
     }
@@ -1206,28 +1260,28 @@ function Import-DistroMenu {
     $loc = Read-Folder 'Where should the restored distro be installed?' (Join-Path $Global:Config.WslBase $name)
     if ($null -eq $loc) { return }
     if (Test-Path -LiteralPath (Join-Path $loc 'ext4.vhdx')) {
-        Write-Host " $loc already holds a distro disk (ext4.vhdx). Pick another folder." -ForegroundColor Red
+        Write-Host " $loc already holds a distro disk (ext4.vhdx). Pick another folder." -ForegroundColor $UI.Error
         Pause-Console; return
     }
     if (-not (Test-Path -LiteralPath $loc)) { New-Item -ItemType Directory -Path $loc -Force | Out-Null }
 
-    Write-Host "`n Restoring $name - this can take a few minutes..." -ForegroundColor Cyan
+    Write-Host "`n Restoring $name - this can take a few minutes..." -ForegroundColor $UI.Info
     $a = @('--import', $name, $loc, $selected)
     if ($selected.EndsWith('.vhdx', [System.StringComparison]::OrdinalIgnoreCase)) { $a += '--vhd' }
     $rc = Invoke-WslInline $a
     if ($rc -ne 0) {
-        Write-Host "`n The restore FAILED (exit code $rc). Common causes: not enough free space," -ForegroundColor Red
+        Write-Host "`n The restore FAILED (exit code $rc). Common causes: not enough free space," -ForegroundColor $UI.Error
         Write-Host ' or the file is incomplete/damaged.'
         Pause-Console; return
     }
-    Write-Host "`n Done - $name is restored with all its programs and files." -ForegroundColor Green
+    Write-Host "`n Done - $name is restored with all its programs and files." -ForegroundColor $UI.Ok
     # Import always starts as root: make the first regular user the default login.
     $res = Invoke-WslQuiet @('-d', $name, '-u', 'root', '-e', 'sh', '-c', "getent passwd | awk -F: '`$3>=1000 && `$3<60000 {print `$1; exit}'")
     if ($res.Output.Count -gt 0 -and $res.Output[0] -match '^[a-z_][a-z0-9_-]*$') {
         Invoke-WslQuiet @('--manage', $name, '--set-default-user', $res.Output[0]) | Out-Null
-        Write-Host " Default login set to '$($res.Output[0])' (the user found inside the backup)." -ForegroundColor Green
+        Write-Host " Default login set to '$($res.Output[0])' (the user found inside the backup)." -ForegroundColor $UI.Ok
     } else {
-        Write-Host ' No normal user was found inside it, so it opens as root.' -ForegroundColor Yellow
+        Write-Host ' No normal user was found inside it, so it opens as root.' -ForegroundColor $UI.Warn
     }
     Write-Host ' Saved panel accounts are not part of a backup: for auto-login use Manage'
     Write-Host ' Accounts -> [A] and answer N (the Linux user already exists).'
@@ -1241,39 +1295,39 @@ function Import-DistroMenu {
 # ------------------------------------------------------------------------------
 function Download-DistroMenu {
     Show-Header 'Download a NEW distro'
-    Write-Host ' Distros available to install:' -ForegroundColor Yellow
-    Write-Host '----------------------------------------------------------------' -ForegroundColor DarkGray
+    Write-Host ' Distros available to install:' -ForegroundColor $UI.Heading
+    Write-Host ($GLYPH.Line * (Get-UiWidth)) -ForegroundColor $UI.Hint
     foreach ($l in (Invoke-WslQuiet @('--list', '--online')).Output) { Write-Host " $l" }
-    Write-Host '----------------------------------------------------------------' -ForegroundColor DarkGray
+    Write-Host ($GLYPH.Line * (Get-UiWidth)) -ForegroundColor $UI.Hint
     Write-Host ''
     $name = Read-Line ' Type the NAME exactly as in the first column (e.g. Debian), or B to go back'
     if (-not $name -or $name.ToUpper() -eq 'B') { return }
-    if (-not (Test-DistroName $name)) { Write-Host ' That is not a valid distro name.' -ForegroundColor Red; Pause-Console; return }
+    if (-not (Test-DistroName $name)) { Write-Host ' That is not a valid distro name.' -ForegroundColor $UI.Error; Pause-Console; return }
 
     $base = Read-Folder "Where should $name be installed? (its own sub-folder is created inside)" $Global:Config.WslBase
     if ($null -eq $base) { return }
     $loc = Join-Path $base $name
     if (-not (Test-Path -LiteralPath $loc)) { New-Item -ItemType Directory -Path $loc -Force | Out-Null }
 
-    Write-Host "`n Installing $name into $loc - this downloads several hundred MB, please wait..." -ForegroundColor Cyan
+    Write-Host "`n Installing $name into $loc - this downloads several hundred MB, please wait..." -ForegroundColor $UI.Info
     $rc = Invoke-WslInline @('--install', $name, '--location', $loc, '--no-launch')
     if ($rc -eq 0) { Show-DownloadDone; return }
 
-    Write-Host "`n The download/install FAILED (exit code $rc). Common causes:" -ForegroundColor Yellow
+    Write-Host "`n The download/install FAILED (exit code $rc). Common causes:" -ForegroundColor $UI.Warn
     Write-Host '   - the server dropped the connection ("connection was reset"). Debian does this often.'
     Write-Host '   - the name was typed wrong, or a distro with that name is already installed'
     Write-Host ''
-    Write-Host '   [Y] Try a RESUMABLE download - fetches the same official file in pieces, continues'
-    Write-Host '       wherever the connection drops, checks its SHA-256 fingerprint, then installs it'
-    Write-Host '   [N] Back'
+    Write-MenuItem 'Y' 'Try a RESUMABLE download' 'fetches the same official file in pieces, continues'
+    Write-Host '       wherever the connection drops, checks its SHA-256 fingerprint, then installs it' -ForegroundColor $UI.Hint
+    Write-MenuItem 'N' 'Back'
     if (-not (Read-YesNo 'Try the resumable download?' $false)) { return }
 
-    Write-Host "`n Reading Microsoft's official distro list..." -ForegroundColor Cyan
+    Write-Host "`n Reading Microsoft's official distro list..." -ForegroundColor $UI.Info
     try {
         $json = Invoke-RestMethod -Uri 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
         # Each value is an array of entries, so unroll it before filtering.
         $entry = $json.ModernDistributions.PSObject.Properties.Value | ForEach-Object { $_ } | Where-Object { $_.Name -eq $name } | Select-Object -First 1
-        if (-not $entry) { Write-Host " '$name' has no downloadable image in Microsoft's list." -ForegroundColor Red; Pause-Console; return }
+        if (-not $entry) { Write-Host " '$name' has no downloadable image in Microsoft's list." -ForegroundColor $UI.Error; Pause-Console; return }
         $key = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'Arm64Url' } else { 'Amd64Url' })
         $url = $entry.$key.Url
         $sha = ([string]$entry.$key.Sha256) -replace '^0x', ''
@@ -1285,37 +1339,37 @@ function Download-DistroMenu {
         Get-ChildItem -LiteralPath $env:TEMP -Filter "wsl-$name-*.wsl" -File -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -ne $file } | Remove-Item -Force -ErrorAction SilentlyContinue
 
-        Write-Host " Downloading $url" -ForegroundColor Cyan
-        Write-Host ' (resumable: if the server drops the connection it continues where it stopped)' -ForegroundColor DarkGray
+        Write-Host " Downloading $url" -ForegroundColor $UI.Info
+        Write-Host ' (resumable: if the server drops the connection it continues where it stopped)' -ForegroundColor $UI.Hint
         $ok = $false
         for ($i = 1; $i -le 60; $i++) {
             & curl.exe -L -C - -sS --max-time 300 -o $file $url
             if ($LASTEXITCODE -eq 0) { $ok = $true; break }
-            Write-Host "   connection dropped - resuming (attempt $i of 60)..." -ForegroundColor Yellow
+            Write-Host "   connection dropped - resuming (attempt $i of 60)..." -ForegroundColor $UI.Warn
             Start-Sleep -Seconds 2
         }
-        if (-not $ok) { Write-Host ' The download did not complete.' -ForegroundColor Red; Pause-Console; return }
+        if (-not $ok) { Write-Host ' The download did not complete.' -ForegroundColor $UI.Error; Pause-Console; return }
 
-        Write-Host ' Checking the SHA-256 fingerprint...' -ForegroundColor Cyan
+        Write-Host ' Checking the SHA-256 fingerprint...' -ForegroundColor $UI.Info
         if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $sha) {
             Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
-            Write-Host ' The downloaded file is damaged (fingerprint mismatch) - not installed.' -ForegroundColor Red
+            Write-Host ' The downloaded file is damaged (fingerprint mismatch) - not installed.' -ForegroundColor $UI.Error
             Pause-Console; return
         }
-        Write-Host ' Verified. Installing...' -ForegroundColor Green
+        Write-Host ' Verified. Installing...' -ForegroundColor $UI.Ok
         $rc = Invoke-WslInline @('--install', '--from-file', $file, '--name', $name, '--location', $loc, '--no-launch')
         Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
         if ($rc -eq 0) { Show-DownloadDone; return }
-        Write-Host "`n The install failed (exit code $rc)." -ForegroundColor Red
+        Write-Host "`n The install failed (exit code $rc)." -ForegroundColor $UI.Error
     } catch {
-        Write-Host " The resumable download did not work either: $_" -ForegroundColor Red
+        Write-Host " The resumable download did not work either: $_" -ForegroundColor $UI.Error
         Write-Host ' Check your internet connection and try again later.'
     }
     Pause-Console
 }
 
 function Show-DownloadDone {
-    Write-Host "`n Finished. To set it up, pick it from the list, choose Accounts -> [A] and" -ForegroundColor Green
+    Write-Host "`n Finished. To set it up, pick it from the list, choose Accounts -> [A] and" -ForegroundColor $UI.Ok
     Write-Host ' answer Y - that creates your Linux username and password. (Ubuntu/Debian also'
     Write-Host ' ask for one the first time you open a Terminal; Arch and some others do not -'
     Write-Host ' they start as root.)'
@@ -1328,21 +1382,21 @@ function Show-DownloadDone {
 function Show-TuningMenu {
     Show-Header 'WSL resource limits (.wslconfig)'
     $path = Join-Path $HOME '.wslconfig'
-    Write-Host " Settings file: $path" -ForegroundColor DarkGray
+    Write-Host " Settings file: $path" -ForegroundColor $UI.Hint
     Write-Host ''
     if (Test-Path -LiteralPath $path) {
-        Write-Host ' Current contents:' -ForegroundColor Yellow
+        Write-Host ' Current contents:' -ForegroundColor $UI.Heading
         Get-Content -LiteralPath $path | ForEach-Object { Write-Host "   $_" }
     } else {
-        Write-Host ' No .wslconfig yet (WSL uses its defaults: up to 50% of your RAM).' -ForegroundColor DarkGray
+        Write-Host ' No .wslconfig yet (WSL uses its defaults: up to 50% of your RAM).' -ForegroundColor $UI.Hint
     }
     Write-Host ''
-    Write-Host '   [1] Light:    4 GB RAM, 2 CPU cores, 2 GB swap'
-    Write-Host '   [2] Balanced: 8 GB RAM, 4 CPU cores, 4 GB swap'
-    Write-Host '   [3] Heavy:    16 GB RAM, 6 CPU cores, 8 GB swap'
-    Write-Host '   [4] Custom values'
-    Write-Host "   [D] Reset memory / CPU / swap to WSL's defaults (other settings are kept)"
-    Write-Host '   [B] Back'
+    Write-MenuItem '1' 'Light:    4 GB RAM, 2 CPU cores, 2 GB swap'
+    Write-MenuItem '2' 'Balanced: 8 GB RAM, 4 CPU cores, 4 GB swap'
+    Write-MenuItem '3' 'Heavy:    16 GB RAM, 6 CPU cores, 8 GB swap'
+    Write-MenuItem '4' 'Custom values'
+    Write-MenuItem 'D' "Reset memory / CPU / swap to WSL's defaults (other settings are kept)"
+    Write-MenuItem 'B' 'Back'
     $opt = (Read-Line ' Enter your choice').ToUpper()
 
     if ($opt -eq '1') { $mem = '4GB'; $cpu = '2'; $swap = '2GB' }
@@ -1353,7 +1407,7 @@ function Show-TuningMenu {
         $cpu = Read-Line ' Processors (e.g. 4)'
         $swap = Read-Line ' Swap size (e.g. 2GB, or 0)'
         if ($mem -notmatch '^\d+(GB|MB)$' -or $cpu -notmatch '^\d+$' -or $swap -notmatch '^\d+(GB|MB)?$') {
-            Write-Host ' Those values do not look right (use e.g. 6GB, 4, 2GB) - nothing changed.' -ForegroundColor Red
+            Write-Host ' Those values do not look right (use e.g. 6GB, 4, 2GB) - nothing changed.' -ForegroundColor $UI.Error
             Pause-Console; return
         }
     }
@@ -1366,7 +1420,7 @@ function Show-TuningMenu {
     if (Test-Path -LiteralPath $path) {
         $old = [System.IO.File]::ReadAllLines($path)
         Copy-Item -LiteralPath $path -Destination "$path.bak" -Force
-        Write-Host ' (your previous file was saved as .wslconfig.bak)' -ForegroundColor DarkGray
+        Write-Host ' (your previous file was saved as .wslconfig.bak)' -ForegroundColor $UI.Hint
     }
     $new = Update-WslConfigLines $old ([ordered]@{ memory = $mem; processors = $cpu; swap = $swap })
     if (-not ($new | Where-Object { $_.Trim() -ne '' -and $_.Trim() -ine '[wsl2]' })) {
@@ -1375,10 +1429,8 @@ function Show-TuningMenu {
     } else {
         [System.IO.File]::WriteAllLines($path, [string[]]$new, (New-Object System.Text.UTF8Encoding($false)))
     }
-    if ($opt -eq 'D') { Write-Host "`n Memory / CPU / swap limits removed - WSL uses its defaults again." -ForegroundColor Green }
-    else { Write-Host "`n .wslconfig updated." -ForegroundColor Green }
-    Write-Host ' Use [S] Shut down ALL WSL for it to take effect.' -ForegroundColor Green
-    Pause-Console
+    if ($opt -eq 'D') { Set-Status 'Limits removed - WSL uses its defaults after [S] Shut down ALL WSL (in More tools).' }
+    else { Set-Status "Limits set ($mem RAM, $cpu CPUs, $swap swap) - active after [S] Shut down ALL WSL (in More tools)." }
 }
 
 # Sets the given keys in the [wsl2] section of .wslconfig lines (a $null value
@@ -1425,23 +1477,22 @@ function Update-WslConfigLines([string[]]$lines, $values) {
 function Show-DataFoldersMenu {
     while ($true) {
         Show-Header 'Where your data is saved'
-        Write-Host " Settings + saved logins: $CONFIG_FOLDER" -ForegroundColor DarkGray
-        Write-Host '   (always next to the panel - the encrypted passwords belong to this Windows login)' -ForegroundColor DarkGray
+        Write-Host " Settings + saved logins: $CONFIG_FOLDER" -ForegroundColor $UI.Hint
+        Write-Host '   (always next to the panel - the encrypted passwords belong to this Windows login)' -ForegroundColor $UI.Hint
         Write-Host ''
-        Write-Host "   [1] Linux disks (new distros): $($Global:Config.WslBase)"
-        Write-Host "   [2] Backups:                   $($Global:Config.BackupBase)"
-        Write-Host '   [D] Put both back to the default folders'
-        Write-Host '   [B] Back'
+        Write-MenuItem '1' "Linux disks (new distros): $($Global:Config.WslBase)"
+        Write-MenuItem '2' "Backups:                   $($Global:Config.BackupBase)"
+        Write-MenuItem 'D' 'Put both back to the default folders'
+        Write-MenuItem 'B' 'Back'
         Write-Host ''
-        Write-Host ' A change only applies to NEW distros and NEW backups; existing ones stay where they are.' -ForegroundColor DarkGray
+        Write-Host ' A change only applies to NEW distros and NEW backups; existing ones stay where they are.' -ForegroundColor $UI.Hint
         $opt = (Read-Line ' Enter your choice').ToUpper()
         if ($opt -eq 'B' -or $opt -eq '') { return }
         elseif ($opt -eq 'D') {
             $Global:Config.WslBase = Join-Path $DATA_FOLDER 'linux'
             $Global:Config.BackupBase = Join-Path $DATA_FOLDER 'backups'
             Save-Config
-            Write-Host ' Back to the default folders.' -ForegroundColor Green
-            Pause-Console
+            Set-Status 'Back to the default folders.'
         }
         elseif ($opt -eq '1' -or $opt -eq '2') {
             $what = $(if ($opt -eq '1') { 'Where should NEW Linux disks be saved?' } else { 'Where should NEW backups be saved?' })
@@ -1451,15 +1502,115 @@ function Show-DataFoldersMenu {
             try {
                 if (-not (Test-Path -LiteralPath $new)) { New-Item -ItemType Directory -Path $new -Force | Out-Null }
             } catch {
-                Write-Host " Could not create that folder: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host " Could not create that folder: $($_.Exception.Message)" -ForegroundColor $UI.Error
                 Pause-Console; continue
             }
             if ($opt -eq '1') { $Global:Config.WslBase = $new } else { $Global:Config.BackupBase = $new }
             Save-Config
-            Write-Host ' Saved.' -ForegroundColor Green
-            Pause-Console
+            Set-Status "Saved - new $(if ($opt -eq '1') { 'Linux disks' } else { 'backups' }) go to $new"
         }
     }
+}
+
+# ------------------------------------------------------------------------------
+# More tools (the less-used actions, kept off the main screen)
+# ------------------------------------------------------------------------------
+function Close-DistroMenu {
+    $running = @(Get-RunningDistros)
+    if ($running.Count -eq 0) { Set-Status 'No distros are running - nothing to close.' 'Warn'; return }
+    Show-Header 'Close a running distro'
+    Write-Host ' Running distros:' -ForegroundColor $UI.Heading
+    for ($i = 0; $i -lt $running.Count; $i++) { Write-MenuItem ($i + 1) $running[$i] }
+    Write-MenuItem 'A' 'Close ALL running distros'
+    Write-MenuItem 'B' 'Back'
+    Write-Host ''
+    $rc = (Read-Line ' Which to close').ToUpper()
+    if ($rc -eq 'A') {
+        Write-Host ' Stopping everything ...' -ForegroundColor $UI.Info
+        Stop-KexAll
+        Invoke-WslQuiet @('--shutdown') | Out-Null
+        Set-Status 'Everything is stopped and the WSL memory is freed.'
+    } elseif (($ri = Get-ListIndex $rc $running.Count) -ge 0) {
+        $t = $running[$ri]
+        Write-Host " Shutting down $t ..." -ForegroundColor $UI.Info
+        Stop-Distro $t
+        Free-WslVm
+        Set-Status "$t is stopped."
+    }
+}
+
+function Stop-AllWsl {
+    Show-Header 'Shut down ALL WSL'
+    Write-Host ' This stops EVERY running distro and frees the memory WSL is using.'
+    Write-Host ' (A separate "Vmmem" in Task Manager is NOT Linux - this does not affect it.)' -ForegroundColor $UI.Hint
+    Write-Host ''
+    if (-not (Read-YesNo 'Shut down all of WSL now?' $false)) { return }
+    Write-Host ' Running wsl --shutdown ...' -ForegroundColor $UI.Info
+    Stop-KexAll
+    Invoke-WslQuiet @('--shutdown') | Out-Null
+    Start-Sleep -Seconds 4
+    if (@(Get-Process -Name VmmemWSL -ErrorAction SilentlyContinue).Count -eq 0) {
+        Set-Status 'WSL is shut down and its memory is freed.'
+    } else {
+        Set-Status 'WSL is shutting down - its memory is freed within a minute.'
+    }
+}
+
+function Select-DistroToCompact($distros) {
+    if ($distros.Count -eq 0) { Set-Status 'No distros installed - nothing to compact.' 'Warn'; return }
+    Show-Header 'Compact a disk'
+    Write-Host ' Compact which distro?' -ForegroundColor $UI.Heading
+    for ($i = 0; $i -lt $distros.Count; $i++) { Write-MenuItem ($i + 1) $distros[$i].Name }
+    Write-MenuItem 'B' 'Back'
+    Write-Host ''
+    $ki = Get-ListIndex (Read-Line ' Enter your choice') $distros.Count
+    if ($ki -ge 0) { Compact-DistroDisk $distros[$ki].Name }
+}
+
+function Update-WslMenu {
+    Show-Header 'Update / repair WSL'
+    Write-Host " This updates the WSL platform (fixes many `"won't start`" / kernel problems)."
+    Write-Host ' It needs administrator rights - click YES on the Windows prompt.'
+    Write-Host ' Your distros and their files are NOT touched.' -ForegroundColor $UI.Hint
+    Write-Host ''
+    if (-not (Read-YesNo 'Update WSL now?' $false)) { return }
+    try {
+        Start-Process -FilePath 'cmd.exe' -Verb RunAs -Wait -ArgumentList (Join-WinArgs @('/c', 'wsl --update & echo. & pause'))
+        Set-Status 'WSL update finished. Restart Windows if the update window asked you to.'
+    } catch {
+        Write-Host ' The administrator prompt was declined or failed.' -ForegroundColor $UI.Error
+        Pause-Console
+    }
+}
+
+# Runs one tool by its key; $false if the key is not a tool. The main screen
+# accepts these keys too, as shortcuts for people who know them.
+function Invoke-Tool([string]$key, $distros) {
+    switch ($key) {
+        'C' { Close-DistroMenu; return $true }
+        'S' { Stop-AllWsl; return $true }
+        'K' { Select-DistroToCompact $distros; return $true }
+        'T' { Show-TuningMenu; return $true }
+        'D' { Show-DataFoldersMenu; return $true }
+        'U' { Update-WslMenu; return $true }
+    }
+    return $false
+}
+
+function Show-MoreMenu($distros) {
+    Show-Header 'More tools'
+    Write-MenuItem 'C' 'Close a running distro' 'stops one distro, frees its RAM ("wsl --terminate")'
+    Write-MenuItem 'S' 'Shut down ALL WSL    ' 'stops everything, frees the WSL VM ("wsl --shutdown")'
+    Write-MenuItem 'K' 'Compact a disk       ' 'gives unused ext4.vhdx space back to Windows'
+    Write-MenuItem 'T' 'Memory / CPU limits  ' 'edits .wslconfig'
+    Write-MenuItem 'D' 'Data folders         ' 'where Linux disks and backups are saved'
+    Write-MenuItem 'U' 'Update / repair WSL  ' 'runs "wsl --update" (admin)'
+    Write-MenuItem 'B' 'Back'
+    Write-Host ''
+    Write-Host ' Tip: these letters also work straight from the main screen.' -ForegroundColor $UI.Hint
+    $c = (Read-Line ' Enter your choice').ToUpper()
+    if ($c -eq 'B' -or $c -eq '') { return }
+    if (-not (Invoke-Tool $c $distros)) { Set-Status "'$c' is not one of the tools." 'Warn' }
 }
 
 # ------------------------------------------------------------------------------
@@ -1470,113 +1621,61 @@ function Show-MainMenu {
         $all = @(Get-WslDistros)
         $distros = @($all | Where-Object { -not $_.IsSystem })
         $hidden = @($all | Where-Object { $_.IsSystem })
-        Show-Header 'Dashboard'
-        Write-Host ' Installed distros:' -ForegroundColor Yellow
-        Write-Host '----------------------------------------------------------------' -ForegroundColor DarkGray
+        $default = $distros | Where-Object { $_.IsDefault } | Select-Object -First 1
+        if (-not $default -and $distros.Count -gt 0) { $default = $distros[0] }
+
+        Show-Header
+        Write-Host ' Your Linux distros' -ForegroundColor $UI.Heading
         if ($distros.Count -eq 0) {
-            Write-Host ' (none yet - use [N] below to download your first distro)' -ForegroundColor DarkGray
+            Write-Host '   none yet - press N to download your first one' -ForegroundColor $UI.Hint
         }
+        $nameWidth = [math]::Max(12, (@($distros | ForEach-Object { $_.Name.Length }) + 0 | Measure-Object -Maximum).Maximum + 2)
         for ($i = 0; $i -lt $distros.Count; $i++) {
             $d = $distros[$i]
+            $on = ($d.State -eq 'Running')
             $vhd = Get-DistroVhdInfo $d.Name
-            $color = $(if ($d.State -eq 'Running') { 'Green' } else { 'DarkGray' })
-            Write-Host ("  [{0}] {1} {2} " -f ($i + 1), $(if ($d.IsDefault) { '*' } else { ' ' }), $d.Name.PadRight(18)) -NoNewline
-            Write-Host ("[{0}]" -f $d.State.ToUpper()).PadRight(12) -ForegroundColor $color -NoNewline
-            Write-Host ("WSL{0}   {1} GB" -f $d.Version, $vhd.SizeGB) -ForegroundColor DarkGray
+            Write-Host '   [' -NoNewline -ForegroundColor $UI.Hint
+            Write-Host ($i + 1) -NoNewline -ForegroundColor $UI.Key
+            Write-Host '] ' -NoNewline -ForegroundColor $UI.Hint
+            $stateColour = $(if ($on) { $UI.Ok } else { $UI.Hint })
+            Write-Host ("{0} " -f $(if ($on) { $GLYPH.Running } else { $GLYPH.Stopped })) -NoNewline -ForegroundColor $stateColour
+            Write-Host $d.Name.PadRight($nameWidth) -NoNewline
+            Write-Host ($d.State.ToLower()).PadRight(9) -NoNewline -ForegroundColor $stateColour
+            Write-Host ("WSL{0}  {1,6:N1} GB" -f $d.Version, [double]$vhd.SizeGB) -NoNewline -ForegroundColor $UI.Hint
+            if ($d.Name -eq $default.Name) { Write-Host '  default' -ForegroundColor $UI.Key } else { Write-Host '' }
         }
         if ($hidden.Count -gt 0) {
-            Write-Host " (hidden: $(($hidden | ForEach-Object { $_.Name }) -join ', ') - they belong to Docker/Rancher Desktop)" -ForegroundColor DarkGray
+            Write-Host "   (hidden: $(($hidden | ForEach-Object { $_.Name }) -join ', ') - they belong to Docker/Rancher Desktop)" -ForegroundColor $UI.Hint
         }
-        Write-Host '----------------------------------------------------------------' -ForegroundColor DarkGray
         Write-Host ''
-        Write-Host " Press ENTER to quick-open your default distro's desktop, or pick a number to manage it."
+        $kw = 5; $lw = 21
+        if ($default) { Write-MenuItem 'Enter' 'Open the desktop' "of $($default.Name)" $kw $lw }
+        if ($distros.Count -eq 1) { Write-MenuItem '1' 'Manage it' 'open, accounts, port, systemd, delete' $kw $lw }
+        elseif ($distros.Count -gt 1) { Write-MenuItem "1-$($distros.Count)" 'Manage a distro' 'open, accounts, port, systemd, delete' $kw $lw }
+        Write-MenuItem 'N' 'Download a new distro' '' $kw
+        Write-MenuItem 'E' 'Back up a distro' '' $kw
+        Write-MenuItem 'R' 'Restore a backup' '' $kw
+        Write-MenuItem 'M' 'More tools' 'close, shut down, compact, limits, folders, update' $kw $lw
+        Write-MenuItem 'Q' 'Quit' 'distros keep running' $kw $lw
         Write-Host ''
-        Write-Host '   [C] Close a running distro   - stops one distro, frees its RAM'
-        Write-Host '   [S] Shut down ALL WSL        - stops everything, frees the WSL VM'
-        Write-Host '   [N] Download a NEW distro    - "wsl --install", with a resumable fallback'
-        Write-Host '   [E] Back up a distro         - "wsl --export" to one .tar / .vhdx file'
-        Write-Host '   [R] Restore a backup         - "wsl --import" brings a backup back'
-        Write-Host '   [K] Compact a disk           - give unused ext4.vhdx space back to Windows'
-        Write-Host '   [T] Memory / CPU limits      - edit .wslconfig'
-        Write-Host '   [D] Data folders             - choose where Linux disks and backups are saved'
-        Write-Host '   [U] Update / repair WSL      - runs "wsl --update" (admin)'
-        Write-Host '   [Q] Quit                     - close the panel (distros keep running)'
-        Write-Host ''
-        $choice = (Read-Line ' Enter your choice').ToUpper()
+        $typed = Read-Line ' Enter your choice'
+        $choice = $typed.ToUpper()
 
         if ($choice -eq 'Q') { return }
         elseif ($choice -eq '') {
-            if ($distros.Count -eq 0) { Write-Host "`n No distros installed yet - use [N]." -ForegroundColor Yellow; Pause-Console; continue }
-            $target = $distros | Where-Object { $_.IsDefault } | Select-Object -First 1
-            if (-not $target) { $target = $distros[0] }
-            $accts = @(Get-SavedAccounts $target.Name)
-            Start-DistroDesktop $target.Name $(if ($accts.Count -gt 0) { $accts[0] } else { $null })
-        }
-        elseif ($choice -eq 'C') {
-            $running = @(Get-RunningDistros)
-            if ($running.Count -eq 0) { Write-Host "`n No distros are running - nothing to close." -ForegroundColor Yellow; Pause-Console; continue }
-            Write-Host "`n Running distros:" -ForegroundColor Yellow
-            for ($i = 0; $i -lt $running.Count; $i++) { Write-Host "   [$($i + 1)] $($running[$i])" }
-            Write-Host '   [A] Close ALL running distros'
-            Write-Host '   [B] Back'
-            $rc = (Read-Line ' Which to close').ToUpper()
-            if ($rc -eq 'A') {
-                Stop-KexAll
-                Invoke-WslQuiet @('--shutdown') | Out-Null
-                Write-Host ' Done - everything is stopped.' -ForegroundColor Green
-                Pause-Console
-            } elseif (($ri = Get-ListIndex $rc $running.Count) -ge 0) {
-                $t = $running[$ri]
-                Write-Host " Shutting down $t ..." -ForegroundColor Yellow
-                Stop-Distro $t
-                Free-WslVm
-                Write-Host " Done - $t is stopped." -ForegroundColor Green
-                Pause-Console
-            }
-        }
-        elseif ($choice -eq 'S') {
-            if (-not (Read-YesNo 'This stops EVERY running distro and frees the WSL VM. Proceed?' $false)) { continue }
-            Write-Host ' Running wsl --shutdown ...' -ForegroundColor Yellow
-            Stop-KexAll
-            Invoke-WslQuiet @('--shutdown') | Out-Null
-            Start-Sleep -Seconds 4
-            $vm = @(Get-Process -Name VmmemWSL -ErrorAction SilentlyContinue).Count
-            if ($vm -eq 0) { Write-Host ' Done - the WSL VM (VmmemWSL) is closed and its memory is freed.' -ForegroundColor Green }
-            else { Write-Host ' WSL is shutting down; VmmemWSL is still releasing - it clears within a minute.' -ForegroundColor Yellow }
-            Write-Host ' (A separate "Vmmem" in Task Manager is NOT Linux - wsl --shutdown does not affect it.)' -ForegroundColor DarkGray
-            Pause-Console
+            if (-not $default) { Set-Status 'No distros installed yet - press N to download one.' 'Warn'; continue }
+            $accts = @(Get-SavedAccounts $default.Name)
+            Start-DistroDesktop $default.Name $(if ($accts.Count -gt 0) { $accts[0] } else { $null })
         }
         elseif ($choice -eq 'N') { Download-DistroMenu }
         elseif ($choice -eq 'E') { Export-DistroMenu }
         elseif ($choice -eq 'R') { Import-DistroMenu }
-        elseif ($choice -eq 'T') { Show-TuningMenu }
-        elseif ($choice -eq 'D') { Show-DataFoldersMenu }
-        elseif ($choice -eq 'K') {
-            if ($distros.Count -eq 0) { continue }
-            Write-Host "`n Compact which distro?" -ForegroundColor Yellow
-            for ($i = 0; $i -lt $distros.Count; $i++) { Write-Host "   [$($i + 1)] $($distros[$i].Name)" }
-            $kc = Read-Line ' Enter your choice'
-            $ki = Get-ListIndex $kc $distros.Count
-            if ($ki -ge 0) { Compact-DistroDisk $distros[$ki].Name }
-        }
-        elseif ($choice -eq 'U') {
-            Show-Header 'Update / repair WSL'
-            Write-Host " This updates the WSL platform (fixes many `"won't start`" / kernel problems)."
-            Write-Host ' It needs administrator rights - click YES on the Windows prompt.'
-            Write-Host ' Your distros and their files are NOT touched.'
-            if (-not (Read-YesNo 'Update WSL now?' $false)) { continue }
-            try {
-                Start-Process -FilePath 'cmd.exe' -Verb RunAs -Wait -ArgumentList (Join-WinArgs @('/c', 'wsl --update & echo. & pause'))
-            } catch { Write-Host ' The administrator prompt was declined or failed.' -ForegroundColor Red }
-            Pause-Console
-        }
+        elseif ($choice -eq 'M') { Show-MoreMenu $distros }
+        elseif (Invoke-Tool $choice $distros) { }
         elseif (($di = Get-ListIndex $choice $distros.Count) -ge 0) {
             Show-DistroMenu $distros[$di].Name
         }
-        else {
-            Write-Host "`n That was not a valid choice." -ForegroundColor Red
-            Pause-Console
-        }
+        else { Set-Status "'$typed' is not a choice on this screen." 'Warn' }
     }
 }
 
@@ -1589,9 +1688,9 @@ try {
     # Input was closed (e.g. piped input ended) - just leave.
 } catch {
     Write-Host ''
-    Write-Host ' The WSL Control Panel hit an unexpected error:' -ForegroundColor Red
-    Write-Host "   $($_.Exception.Message)" -ForegroundColor Red
-    if ($_.ScriptStackTrace) { Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray }
+    Write-Host ' The WSL Control Panel hit an unexpected error:' -ForegroundColor $UI.Error
+    Write-Host "   $($_.Exception.Message)" -ForegroundColor $UI.Error
+    if ($_.ScriptStackTrace) { Write-Host $_.ScriptStackTrace -ForegroundColor $UI.Hint }
     Pause-Console 'Press any key to close...'
     exit 1
 }

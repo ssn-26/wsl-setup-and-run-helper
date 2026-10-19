@@ -25,20 +25,28 @@ My try to learn bash through a real-world working project.
 
 **Everyday use: a control panel for your distros**
 
+The main screen keeps the everyday actions:
+
 | Key | Option | What happens behind the scenes |
 |---|---|---|
-| *Enter* | Quick-open | Wakes your default distro and opens its desktop with its first saved account |
+| *Enter* | Open the desktop | Wakes your default distro and opens its desktop with its first saved account |
 | number | Manage a distro | Open (Desktop / Terminal), Close, Accounts, xrdp port, Compact disk, systemd on/off, or Delete it |
-| `C` | Close a running distro | `wsl --terminate`, which frees its RAM |
-| `S` | Shut down all WSL | `wsl --shutdown`, which frees the whole WSL VM |
 | `N` | Download a new distro | `wsl --install` from Microsoft's official list, with a resumable fallback |
 | `E` | Back up a distro | `wsl --export` saves everything to one `.tar` (or faster `.vhdx`) file |
 | `R` | Restore a backup | `wsl --import` brings a backup back, on this PC or a new one |
+| `M` | More tools | The less-used tools below |
+| `Q` | Quit | Closes the panel; distros keep running |
+
+**`[M]` More tools** (their letters also work straight from the main screen):
+
+| Key | Option | What happens behind the scenes |
+|---|---|---|
+| `C` | Close a running distro | `wsl --terminate`, which frees its RAM |
+| `S` | Shut down all WSL | `wsl --shutdown`, which frees the whole WSL VM |
 | `K` | Compact a disk | Hands unused `ext4.vhdx` space back to Windows (admin, via diskpart) |
 | `T` | Memory / CPU limits | Sets `memory`, `processors` and `swap` in `.wslconfig`; your other settings stay (a copy is kept as `.wslconfig.bak`) |
 | `D` | Data folders | Choose where new Linux disks and backups are saved |
 | `U` | Update / repair WSL | `wsl --update` (admin) |
-| `Q` | Quit | Closes the panel; distros keep running |
 
 - **Desktop or Terminal.** Kali opens in its own Win-KeX window. Every other
   distro opens in Windows Remote Desktop (xrdp, default port **3390** so it never
@@ -62,6 +70,12 @@ My try to learn bash through a real-world working project.
 - **Docker / Rancher Desktop distros are left alone.** `docker-desktop` and
   `rancher-desktop` (and their `-data` disks) are hidden from the menus, but
   the panel still sees them running, so it never shuts WSL down under them.
+- **Easy to read.** Each colour means one thing: cyan for the keys to press,
+  green for running / done, yellow for warnings, red for errors, grey for
+  explanations. Running distros get a filled dot and stopped ones a hollow dot.
+  After a quick action the result appears as one line at the top of the next
+  screen instead of a "Press any key" stop. In Windows Terminal you get proper
+  symbols; the old console window shows plain `*` / `-` instead.
 - **Every menu explains itself.** Each option shows in one line what it does
   and which `wsl` command runs, so you learn the tool as you use it.
 
