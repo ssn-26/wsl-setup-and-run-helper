@@ -12,7 +12,7 @@ set "PS_SCRIPT=%~dp0powershell\WSL-Control-Panel.ps1"
 if not exist "%PS_SCRIPT%" (
     echo.
     echo  Error: powershell\WSL-Control-Panel.ps1 was not found in "%~dp0"
-    echo  Keep this .bat together with the "powershell" and "bash files" folders.
+    echo  Keep this .bat together with the "powershell" and "bash" folders.
     echo.
     pause
     exit /b 1

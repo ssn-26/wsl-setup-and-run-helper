@@ -16,6 +16,10 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+# Shown in every header, so a bug report can say which version it was.
+# Raise it with each change you share.
+$PANEL_VERSION = '1.1.0'
+
 # WSL_UTF8=1 makes wsl.exe print UTF-8 instead of UTF-16 (children inherit it).
 $env:WSL_UTF8 = '1'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -24,7 +28,7 @@ try { $Host.UI.RawUI.WindowTitle = 'WSL Control Panel' } catch { }
 
 # Folder layout (this script lives in <root>\powershell):
 #   <root>\WSL-Control-Panel.bat   start file
-#   <root>\bash files\             the Linux-side scripts
+#   <root>\bash\                   the Linux-side scripts
 #   <root>\data\config\            config.json + saved accounts (encrypted passwords)
 #   <root>\data\backups\           backups made with [E]       (location can be changed)
 #   <root>\data\linux\             one folder per distro disk  (location can be changed)
@@ -34,7 +38,7 @@ if (-not $SCRIPT_DIR) { $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = (Get-Location).Path }
 $ROOT_DIR = Split-Path -Parent $SCRIPT_DIR
 
-$SCRIPTS_FOLDER  = Join-Path $ROOT_DIR 'bash files'
+$SCRIPTS_FOLDER  = Join-Path $ROOT_DIR 'bash'
 $DATA_FOLDER     = Join-Path $ROOT_DIR 'data'
 $CONFIG_FOLDER   = Join-Path $DATA_FOLDER 'config'
 $ACCOUNTS_FOLDER = Join-Path $CONFIG_FOLDER 'accounts'
@@ -80,7 +84,7 @@ foreach ($d in @($CONFIG_FOLDER, $ACCOUNTS_FOLDER, $Global:Config.WslBase, $Glob
 function Show-Header([string]$subtitle = '') {
     try { Clear-Host } catch { }
     Write-Host '================================================================' -ForegroundColor Cyan
-    Write-Host '                   WSL Control Panel' -ForegroundColor Cyan
+    Write-Host "                   WSL Control Panel  v$PANEL_VERSION" -ForegroundColor Cyan
     if ($subtitle) { Write-Host "   $subtitle" -ForegroundColor Yellow }
     Write-Host '================================================================' -ForegroundColor Cyan
     Write-Host ''
@@ -173,9 +177,16 @@ function Invoke-ElevatedScript([string]$code) {
 function Get-ScriptText([string]$name) {
     $path = Join-Path $SCRIPTS_FOLDER $name
     if (-not (Test-Path -LiteralPath $path)) {
-        throw "Missing helper file: $path`n  Keep the 'bash files' folder next to the 'powershell' folder."
+        throw "Missing helper file: $path`n  Keep the 'bash' folder next to the 'powershell' folder."
     }
     return ((Get-Content -LiteralPath $path -Raw) -replace "`r`n", "`n")
+}
+
+# A script that writes desktop session files, with a write_session function
+# in front of it that prints bash/xsession (the one copy of that file).
+function Get-ScriptWithSession([string]$name) {
+    $session = (Get-ScriptText 'xsession').TrimEnd("`n")
+    return "write_session() {`ncat <<'XSESSION_EOF'`n$session`nXSESSION_EOF`n}`n" + (Get-ScriptText $name)
 }
 
 function ConvertTo-Base64([string]$text) {
@@ -541,7 +552,7 @@ function Set-LinuxPassword([string]$distro, [string]$user, [string]$password) {
 # an XFCE session file, then sets the password. Returns $true on success.
 function New-LinuxUser([string]$distro, [string]$user, [string]$password) {
     Write-Host "`n Creating user '$user' inside $distro - please wait, this can take a minute or two..." -ForegroundColor Cyan
-    $res = Invoke-WslScript $distro 'root' (Get-ScriptText 'create-user.sh') @($user)
+    $res = Invoke-WslScript $distro 'root' (Get-ScriptWithSession 'create-user.sh') @($user)
     foreach ($l in $res.Output) { Write-Host "   $l" -ForegroundColor DarkGray }
     if ($res.ExitCode -ne 0) {
         Write-Host " The user could not be created (exit code $($res.ExitCode))." -ForegroundColor Red
@@ -692,7 +703,7 @@ function Install-DesktopInDistro([string]$distro, [int]$port, [bool]$isKali) {
         # The installer is streamed in through stdin from a temp file (like the
         # old .bat did) so no command line has to carry it.
         $tmp = Join-Path $env:TEMP 'wsl-desktop-setup.b64'
-        Set-Content -LiteralPath $tmp -Value (ConvertTo-Base64 (Get-ScriptText 'install-desktop.sh')) -Force -Encoding Ascii
+        Set-Content -LiteralPath $tmp -Value (ConvertTo-Base64 (Get-ScriptWithSession 'install-desktop.sh')) -Force -Encoding Ascii
         $cmd = "tr -d '\r' | base64 -d > /tmp/wsl-desktop-setup.sh && { bash /tmp/wsl-desktop-setup.sh $port </dev/null 2>&1 | tee $log; rc=`${PIPESTATUS[0]}; rm -f /tmp/wsl-desktop-setup.sh; exit `$rc; }"
         $rc = Invoke-WslInline @('-d', $distro, '-u', 'root', '-e', 'bash', '-c', $cmd) $tmp
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue

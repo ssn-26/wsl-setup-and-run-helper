@@ -7,7 +7,7 @@
 # ==============================================================================
 
 # Wait up to 5 minutes (300 iterations) for the session to start
-for i in $(seq 1 300); do
+for _ in $(seq 1 300); do
     pgrep -x xfce4-session >/dev/null 2>&1 && break
     sleep 1
 done

@@ -131,7 +131,9 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 ```
 WSL-Control-Panel.bat     <- double-click this
 README.md
-bash files\               the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
+LICENSE                   MIT licence
+bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
+                          + xsession, the desktop session file both installers write
 powershell\               the panel itself (WSL-Control-Panel.ps1)
 data\                     everything the panel creates (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
@@ -200,7 +202,7 @@ working (saved passwords only decrypt on the same Windows login, though).
 
 - **Three parts.** `WSL-Control-Panel.bat` only starts PowerShell. All the logic
   is in `powershell\WSL-Control-Panel.ps1`. The Linux-side scripts are ordinary readable
-  files in `bash files\` (`install-desktop.sh`, `create-user.sh`,
+  files in `bash\` (`install-desktop.sh`, `create-user.sh`,
   `keepalive.sh`); the panel sends them into the distro as **base64** so no
   layer of Windows/bash quoting can mangle them.
 - **Safe quoting.** The panel never builds one long command string. It passes each
@@ -232,6 +234,13 @@ working (saved passwords only decrypt on the same Windows login, though).
 - Keep `WSL-Control-Panel.ps1` plain ASCII and the `.bat` with CRLF line
   endings. Check the script parses with Windows PowerShell 5.1 (`powershell.exe`, which
   is what the launcher uses), not PowerShell 7, which accepts syntax 5.1 rejects.
+- **Checks on GitHub.** Every push runs `.github/workflows/checks.yml`: it
+  parses the panel with Windows PowerShell 5.1, checks it is plain ASCII and that
+  the `.bat` is CRLF, runs `shellcheck` on `bash\`, and lists PSScriptAnalyzer's
+  findings (report only).
+- **Version.** The panel's header shows its version (`$PANEL_VERSION` at the
+  top of the script). Raise it when you share a change, so a bug report can say
+  which version it came from.
 
 ---
 
@@ -239,3 +248,11 @@ working (saved passwords only decrypt on the same Windows login, though).
 
 - Desktops are XFCE-based: Kali via Win-KeX, every other distro via xrdp.
 - Compacting a disk needs administrator rights and stops all of WSL.
+
+---
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). You may use, change and share this project,
+including commercially, as long as the copyright notice stays with it. It comes
+with no warranty.

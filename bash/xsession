@@ -1,0 +1,13 @@
+# Written by the WSL Control Panel as ~/.xsession and ~/.xinitrc.
+# Force X11 so XFCE renders inside Remote Desktop (xrdp), not via WSLg Wayland.
+unset WAYLAND_DISPLAY
+export GDK_BACKEND=x11
+export QT_QPA_PLATFORM=xcb
+export XDG_SESSION_TYPE=x11
+
+# Route audio to WSLg's PulseAudio server for working sound in Remote Desktop.
+if [ -e /mnt/wslg/PulseServer ]; then
+    export PULSE_SERVER=/mnt/wslg/PulseServer
+fi
+
+exec startxfce4

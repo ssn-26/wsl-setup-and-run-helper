@@ -1,0 +1,79 @@
+# Fast checks on every push and pull request. They catch the mistakes that
+# otherwise only show up when someone double-clicks the panel on Windows.
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  bash:
+    name: Bash scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          shellcheck bash/*.sh
+          shellcheck -s sh bash/xsession
+
+      - name: LF line endings in bash/
+        run: |
+          if grep -rlI $'\r' bash/; then
+            echo "::error::The files above have Windows (CRLF) line endings; bash inside WSL needs LF."
+            exit 1
+          fi
+
+  powershell:
+    name: PowerShell panel
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The launcher uses powershell.exe (5.1), which rejects some syntax
+      # PowerShell 7 accepts, so parse with 5.1 itself.
+      - name: Parses with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path powershell/WSL-Control-Panel.ps1).Path, [ref]$null, [ref]$errors)
+          if ($errors) {
+            $errors | ForEach-Object { Write-Host "::error file=powershell/WSL-Control-Panel.ps1,line=$($_.Extent.StartLineNumber)::$($_.Message)" }
+            exit 1
+          }
+          "Parsed OK with PowerShell $($PSVersionTable.PSVersion)"
+
+      # 5.1 reads a BOM-less script as ANSI, so any non-ASCII byte can break it.
+      - name: Panel script is plain ASCII
+        shell: powershell
+        run: |
+          $lines = [IO.File]::ReadAllLines((Resolve-Path powershell/WSL-Control-Panel.ps1).Path)
+          $bad = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '[^\x00-\x7F]') { $i + 1 } })
+          if ($bad.Count) {
+            $bad | ForEach-Object { Write-Host "::error file=powershell/WSL-Control-Panel.ps1,line=$_::Non-ASCII character" }
+            exit 1
+          }
+          'Plain ASCII'
+
+      # cmd.exe can fail to find labels in a .bat with Unix (LF) line endings.
+      - name: Launcher keeps CRLF line endings
+        shell: powershell
+        run: |
+          $text = [IO.File]::ReadAllText((Resolve-Path WSL-Control-Panel.bat).Path)
+          if ($text -match "(^|[^`r])`n") {
+            Write-Host '::error file=WSL-Control-Panel.bat::Has LF-only line endings; it must be CRLF.'
+            exit 1
+          }
+          'CRLF OK'
+
+      # Report only: style findings are worth reading but do not fail the build.
+      - name: PSScriptAnalyzer (report only)
+        continue-on-error: true
+        shell: powershell
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          }
+          Invoke-ScriptAnalyzer -Path powershell\WSL-Control-Panel.ps1 -Severity Error, Warning |
+            Format-Table Line, Severity, RuleName, Message -AutoSize -Wrap | Out-String -Width 220

@@ -68,7 +68,7 @@ fi
 usermod -aG "$ADMIN_GROUP" "$USERNAME"
 
 # Make sure that group is allowed to use sudo (Arch ships %wheel commented out).
-if ! grep -Eqs "^[[:space:]]*%$ADMIN_GROUP[[:space:]]" /etc/sudoers /etc/sudoers.d/*; then
+if ! grep -Eqs "^[[:space:]]*%${ADMIN_GROUP}[[:space:]]" /etc/sudoers /etc/sudoers.d/*; then
     mkdir -p /etc/sudoers.d
     echo "%$ADMIN_GROUP ALL=(ALL:ALL) ALL" > "/etc/sudoers.d/10-$ADMIN_GROUP"
     chmod 440 "/etc/sudoers.d/10-$ADMIN_GROUP"
@@ -86,21 +86,14 @@ echo "  - Setting up XFCE session and audio forwarding..."
 USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
 USER_HOME="${USER_HOME:-/home/$USERNAME}"
 
-for FILE in .xsession .xinitrc; do
-    cat <<'SESSION_EOF' > "$USER_HOME/$FILE"
-# Force X11 so XFCE renders inside Remote Desktop (xrdp), not via WSLg Wayland.
-unset WAYLAND_DISPLAY
-export GDK_BACKEND=x11
-export QT_QPA_PLATFORM=xcb
-export XDG_SESSION_TYPE=x11
-
-# Route audio to WSLg PulseAudio bridge for working sound in Remote Desktop
-if [ -e /mnt/wslg/PulseServer ]; then
-    export PULSE_SERVER=/mnt/wslg/PulseServer
+# The panel puts a write_session function (printing bash/xsession) in front of
+# this script. Run by hand, read that file from next to this script instead.
+if ! declare -F write_session >/dev/null; then
+    write_session() { cat "$(dirname "$0")/xsession"; }
 fi
 
-exec startxfce4
-SESSION_EOF
+for FILE in .xsession .xinitrc; do
+    write_session > "$USER_HOME/$FILE"
 
     # "user:" = the user's own login group (on openSUSE that is "users", not
     # a group named after the user).

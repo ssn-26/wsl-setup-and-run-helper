@@ -97,15 +97,15 @@ fi
 # Detect package manager and install packages
 set -e
 if command -v apt-get >/dev/null 2>&1; then
-    PM=apt; echo "Detected package manager: apt"; install_apt
+    echo "Detected package manager: apt"; install_apt
 elif command -v dnf >/dev/null 2>&1; then
-    PM=dnf; echo "Detected package manager: dnf"; install_dnf
+    echo "Detected package manager: dnf"; install_dnf
 elif command -v zypper >/dev/null 2>&1; then
-    PM=zypper; echo "Detected package manager: zypper"; install_zypper
+    echo "Detected package manager: zypper"; install_zypper
 elif command -v yum >/dev/null 2>&1; then
-    PM=yum; echo "Detected package manager: yum"; install_yum
+    echo "Detected package manager: yum"; install_yum
 elif command -v pacman >/dev/null 2>&1; then
-    PM=pacman; echo "Detected package manager: pacman"; install_pacman
+    echo "Detected package manager: pacman"; install_pacman
 else
     echo "UNKNOWN_PKG_MANAGER"
     exit 21
@@ -118,7 +118,7 @@ if [ -f /etc/xrdp/xrdp.ini ]; then
     # Only the [Globals] "port=<digits>" line: the [Xorg]/[Xvnc] sections have
     # "port=-1", which must stay exactly as it is.
     sed -i -E "/^\[Globals\]/,/^\[/ s/^port=[0-9]+[[:space:]]*$/port=$PORT/" /etc/xrdp/xrdp.ini
-    grep -Eq "^port=$PORT[[:space:]]*$" /etc/xrdp/xrdp.ini || sed -i "0,/^\[Globals\]/s//[Globals]\nport=$PORT/" /etc/xrdp/xrdp.ini
+    grep -Eq "^port=${PORT}[[:space:]]*$" /etc/xrdp/xrdp.ini || sed -i "0,/^\[Globals\]/s//[Globals]\nport=$PORT/" /etc/xrdp/xrdp.ini
 fi
 
 # 3. Suppress Polkit authentication dialogs (colord & packagekit loop)
@@ -145,22 +145,11 @@ polkit.addRule(function(action, subject) {
 JS_POLKIT_EOF
 
 # 4. Configure default XFCE session files (.xsession & .xinitrc)
-write_session() {
-    cat <<'SESSION_EOF'
-# Force X11 so XFCE renders inside Remote Desktop (xrdp), not via WSLg Wayland.
-unset WAYLAND_DISPLAY
-export GDK_BACKEND=x11
-export QT_QPA_PLATFORM=xcb
-export XDG_SESSION_TYPE=x11
-
-# Route audio to WSLg PulseAudio server for working sound
-if [ -e /mnt/wslg/PulseServer ]; then
-    export PULSE_SERVER=/mnt/wslg/PulseServer
+# The panel puts a write_session function (printing bash/xsession) in front of
+# this script. Run by hand, read that file from next to this script instead.
+if ! declare -F write_session >/dev/null; then
+    write_session() { cat "$(dirname "$0")/xsession"; }
 fi
-
-exec startxfce4
-SESSION_EOF
-}
 
 mkdir -p /etc/skel
 write_session > /etc/skel/.xsession
