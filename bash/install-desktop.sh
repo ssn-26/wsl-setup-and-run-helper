@@ -165,7 +165,9 @@ for H in /root /home/*; do
 done
 
 # 5. Add xrdp user to ssl-cert group if present
-getent group ssl-cert >/dev/null 2>&1 && usermod -aG ssl-cert xrdp 2>/dev/null || true
+if getent group ssl-cert >/dev/null 2>&1; then
+    usermod -aG ssl-cert xrdp 2>/dev/null || true
+fi
 
 # 6. Restart XRDp service
 echo "==> Starting / Restarting xrdp service on port $PORT..."
