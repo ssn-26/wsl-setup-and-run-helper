@@ -36,6 +36,7 @@ My try to learn bash through a real-world working project.
 | `R` | Restore a backup | `wsl --import` brings a backup back, on this PC or a new one |
 | `K` | Compact a disk | Hands unused `ext4.vhdx` space back to Windows (admin, via diskpart) |
 | `T` | Memory / CPU limits | Edits `.wslconfig` (a copy of the old file is kept as `.wslconfig.bak`) |
+| `D` | Data folders | Choose where new Linux disks and backups are saved |
 | `U` | Update / repair WSL | `wsl --update` (admin) |
 | `Q` | Quit | Closes the panel; distros keep running |
 
@@ -74,8 +75,8 @@ My try to learn bash through a real-world working project.
 
 ## Quick start: your first Linux desktop
 
-1. Copy this folder anywhere (keep `WSL-Control-Panel.bat`, `WSL-Control-Panel.ps1`
-   and the `scripts` folder together) and double-click **`WSL-Control-Panel.bat`**.
+1. Copy this folder anywhere (keep it as it is, with its sub-folders) and double-click
+   **`WSL-Control-Panel.bat`**.
    On a PC without WSL, allow the administrator prompt and restart if asked.
 2. **`[N]` Download**: type a name from the list (e.g. `Ubuntu-24.04`,
    `Debian`, `archlinux`, `kali-linux`) and press Enter for the default folder.
@@ -92,7 +93,7 @@ My try to learn bash through a real-world working project.
 ## Moving to a new PC
 
 1. On the old PC: **`[E]` Back up** the distro, then copy the `.tar` file (from
-   `D:\Linux\Backups` or wherever you saved it) to a USB drive or cloud storage.
+   the `data\backups` folder or wherever you saved it) to a USB drive or cloud storage.
 2. On the new PC: run the panel (it installs WSL if needed), then **`[R]`
    Restore**. Pick the backup (or `[P]` and type its path). The distro comes
    back exactly as it was, with your normal user as the default login.
@@ -122,26 +123,33 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 
 ---
 
-## Configuration
+## Folder layout
 
-By default the panel uses ``D:\Linux\WSL`` (new distros) and ``D:\Linux\Backups``
-(backups), or ``WSL`` / ``WSL\Backups`` in your user folder if the PC has no D:
-drive. To change that, create a ``config.json`` next to the scripts:
-
-```json
-{ "WslBase": "C:\WSL", "BackupBase": "C:\WSL\Backups", "DefaultRdpPort": 3390 }
+```
+WSL-Control-Panel.bat     <- double-click this
+README.md
+bash files\               the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
+powershell\               the panel itself (WSL-Control-Panel.ps1)
+data\                     everything the panel creates (never committed to git)
+  config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
+  backups\                backups made with [E]
+  linux\                  one folder per distro, holding its disk (ext4.vhdx)
 ```
 
-Saved accounts live in an ``accounts\`` folder next to the scripts (they are
-also git-ignored), so the folder is fully portable.
+The `data` folders are created the first time they are needed. The Linux disks
+and the backups can be big, so you can move them with **`[D]` Data folders** in
+the panel (for example to another drive). A change applies to new distros and new
+backups only. The settings and saved logins always stay in `data\config`, next to
+the panel.
 
----|---|---|
-| `WSL_BASE` | `D:\Linux\WSL` | Where new distros are installed (the panel asks each time, Enter = default) |
-| `BACKUP_BASE` | `D:\Linux\Backups` | Where `[E]` saves backups and `[R]` looks for them |
+You can also edit `data\config\config.json` by hand:
 
-If you don't have a D: drive, change both to something like `C:\WSL`. Saved
-accounts always live in an `accounts\` folder next to the `.bat`, so the
-folder is fully portable.
+```json
+{ "WslBase": "E:\\Linux", "BackupBase": "E:\\Backups", "DefaultRdpPort": 3390 }
+```
+
+The whole folder is portable: copy it to a USB drive or another PC and it keeps
+working (saved passwords only decrypt on the same Windows login, though).
 
 ---
 
@@ -168,8 +176,9 @@ folder is fully portable.
 - Saved passwords are DPAPI-encrypted and only decryptable by *your* Windows
   user account on *your* machine. When an account is created, the password is
   sent to Linux over a pipe, never written to disk or put on a command line.
-- This repo's `.gitignore` excludes the `accounts\` folder, so your encrypted
-  logins are never committed, even if you run the panel from inside the repo.
+- This repo's `.gitignore` excludes the whole `data\` folder, so your encrypted
+  logins (and your Linux disks and backups) are never committed, even if you run
+  the panel from inside the repo.
 - The setup step only turns WSL on and installs it; it does not delete your
   files. Deleting a distro requires typing its name to confirm, and Restore
   refuses to overwrite a distro that already exists.
@@ -180,33 +189,33 @@ folder is fully portable.
 
 ## How it works (for the curious)
 
-- **Three parts.** ``WSL-Control-Panel.bat`` only starts PowerShell. All the logic
-  is in ``WSL-Control-Panel.ps1``. The Linux-side scripts are ordinary readable
-  files in ``scripts\`` (``install-desktop.sh``, ``create-user.sh``,
-  ``keepalive.sh``); the panel sends them into the distro as **base64** so no
+- **Three parts.** `WSL-Control-Panel.bat` only starts PowerShell. All the logic
+  is in `powershell\WSL-Control-Panel.ps1`. The Linux-side scripts are ordinary readable
+  files in `bash files\` (`install-desktop.sh`, `create-user.sh`,
+  `keepalive.sh`); the panel sends them into the distro as **base64** so no
   layer of Windows/bash quoting can mangle them.
 - **Safe quoting.** The panel never builds one long command string. It passes each
   argument separately and quotes it the way Windows expects, and it validates
-  Linux usernames (``^[a-z_][a-z0-9_-]*$``) before using them.
-- **``wsl -e``** runs a Linux program directly, without an extra shell.
-- **Passwords** go to ``chpasswd`` over stdin, never on a command line or disk.
+  Linux usernames (`^[a-z_][a-z0-9_-]*$`) before using them.
+- **`wsl -e`** runs a Linux program directly, without an extra shell.
+- **Passwords** go to `chpasswd` over stdin, never on a command line or disk.
 - **Negative exit codes:** WSL reports its own errors as negative numbers, so
   the panel compares the exit code with 0.
-- **stdin closed:** background ``wsl`` calls get no keyboard input, so they can
+- **stdin closed:** background `wsl` calls get no keyboard input, so they can
   never swallow the next thing you type.
-- **``WSL_UTF8=1``** makes ``wsl.exe`` print UTF-8 so its output can be read.
-- **Arch Linux:** ``xrdp`` and ``xorgxrdp`` are built from the AUR by a temporary
+- **`WSL_UTF8=1`** makes `wsl.exe` print UTF-8 so its output can be read.
+- **Arch Linux:** `xrdp` and `xorgxrdp` are built from the AUR by a temporary
   non-root user (removed afterwards, along with the build-only tools and the
-  ``-debug`` packages makepkg creates). The installer also sets up pacman's
+  `-debug` packages makepkg creates). The installer also sets up pacman's
   signing keys, which a brand-new Arch doesn't have yet.
-- **X11, not WSLg:** the desktop session files unset ``WAYLAND_DISPLAY`` and set
-  ``GDK_BACKEND=x11``, so XFCE draws inside Remote Desktop instead of on the
+- **X11, not WSLg:** the desktop session files unset `WAYLAND_DISPLAY` and set
+  `GDK_BACKEND=x11`, so XFCE draws inside Remote Desktop instead of on the
   Windows desktop through WSLg. They also point sound at WSLg's PulseAudio server.
 - **Polkit rule:** the installer adds a rule that stops the repeating
   "Authentication is required to create a color managed device" pop-ups.
-- Keep ``WSL-Control-Panel.ps1`` plain ASCII and the ``.bat`` with CRLF line
-  endings; ``syntax-check.ps1`` parses the script with the PowerShell you run it
-  in (use Windows PowerShell 5.1, ``powershell.exe``, which is what the launcher uses).
+- Keep `WSL-Control-Panel.ps1` plain ASCII and the `.bat` with CRLF line
+  endings. Check the script parses with Windows PowerShell 5.1 (`powershell.exe`, which
+  is what the launcher uses), not PowerShell 7, which accepts syntax 5.1 rejects.
 
 ---
 

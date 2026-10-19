@@ -22,24 +22,36 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 try { $OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 try { $Host.UI.RawUI.WindowTitle = 'WSL Control Panel' } catch { }
 
+# Folder layout (this script lives in <root>\powershell):
+#   <root>\WSL-Control-Panel.bat   start file
+#   <root>\bash files\             the Linux-side scripts
+#   <root>\data\config\            config.json + saved accounts (encrypted passwords)
+#   <root>\data\backups\           backups made with [E]       (location can be changed)
+#   <root>\data\linux\             one folder per distro disk  (location can be changed)
 $SCRIPT_DIR = $PSScriptRoot
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = (Get-Location).Path }
+$ROOT_DIR = Split-Path -Parent $SCRIPT_DIR
 
-$SCRIPTS_FOLDER  = Join-Path $SCRIPT_DIR 'scripts'
-$ACCOUNTS_FOLDER = Join-Path $SCRIPT_DIR 'accounts'
-$CONFIG_FILE     = Join-Path $SCRIPT_DIR 'config.json'
+$SCRIPTS_FOLDER  = Join-Path $ROOT_DIR 'bash files'
+$DATA_FOLDER     = Join-Path $ROOT_DIR 'data'
+$CONFIG_FOLDER   = Join-Path $DATA_FOLDER 'config'
+$ACCOUNTS_FOLDER = Join-Path $CONFIG_FOLDER 'accounts'
+$CONFIG_FILE     = Join-Path $CONFIG_FOLDER 'config.json'
 
 # ------------------------------------------------------------------------------
-# Configuration (config.json is optional; it lives next to this script)
+# Configuration (data\config\config.json, created when you change a setting)
 # ------------------------------------------------------------------------------
+function Save-Config {
+    if (-not (Test-Path -LiteralPath $CONFIG_FOLDER)) { New-Item -ItemType Directory -Path $CONFIG_FOLDER -Force | Out-Null }
+    $json = $Global:Config | ConvertTo-Json
+    [System.IO.File]::WriteAllText($CONFIG_FILE, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 function Get-Config {
-    # Falls back to a folder in the user profile on a PC with no D: drive.
-    $hasD = $false
-    try { $hasD = Test-Path -LiteralPath 'D:\' } catch { }
     $cfg = [PSCustomObject]@{
-        WslBase        = $(if ($hasD) { 'D:\Linux\WSL' } else { Join-Path $HOME 'WSL' })
-        BackupBase     = $(if ($hasD) { 'D:\Linux\Backups' } else { Join-Path $HOME 'WSL\Backups' })
+        WslBase        = Join-Path $DATA_FOLDER 'linux'
+        BackupBase     = Join-Path $DATA_FOLDER 'backups'
         DefaultRdpPort = 3390
     }
     if (Test-Path -LiteralPath $CONFIG_FILE) {
@@ -53,6 +65,12 @@ function Get-Config {
     return $cfg
 }
 $Global:Config = Get-Config
+
+# Create the data folders up front so the layout is visible (best effort - a
+# folder on a drive that is not plugged in is simply skipped).
+foreach ($d in @($CONFIG_FOLDER, $ACCOUNTS_FOLDER, $Global:Config.WslBase, $Global:Config.BackupBase)) {
+    try { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } } catch { }
+}
 
 # ------------------------------------------------------------------------------
 # UI helpers
@@ -93,7 +111,7 @@ function Test-IsAdmin {
 function Get-ScriptText([string]$name) {
     $path = Join-Path $SCRIPTS_FOLDER $name
     if (-not (Test-Path -LiteralPath $path)) {
-        throw "Missing helper file: $path`n  Keep the 'scripts' folder next to WSL-Control-Panel.ps1."
+        throw "Missing helper file: $path`n  Keep the 'bash files' folder next to the 'powershell' folder."
     }
     return ((Get-Content -LiteralPath $path -Raw) -replace "`r`n", "`n")
 }
@@ -1222,6 +1240,51 @@ function Show-TuningMenu {
 }
 
 # ------------------------------------------------------------------------------
+# Where data is saved
+# ------------------------------------------------------------------------------
+function Show-DataFoldersMenu {
+    while ($true) {
+        Show-Header 'Where your data is saved'
+        Write-Host " Settings + saved logins: $CONFIG_FOLDER" -ForegroundColor DarkGray
+        Write-Host '   (always next to the panel - the encrypted passwords belong to this Windows login)' -ForegroundColor DarkGray
+        Write-Host ''
+        Write-Host "   [1] Linux disks (new distros): $($Global:Config.WslBase)"
+        Write-Host "   [2] Backups:                   $($Global:Config.BackupBase)"
+        Write-Host '   [D] Put both back to the default folders'
+        Write-Host '   [B] Back'
+        Write-Host ''
+        Write-Host ' A change only applies to NEW distros and NEW backups; existing ones stay where they are.' -ForegroundColor DarkGray
+        $opt = (Read-Line ' Enter your choice').ToUpper()
+        if ($opt -eq 'B' -or $opt -eq '') { return }
+        elseif ($opt -eq 'D') {
+            $Global:Config.WslBase = Join-Path $DATA_FOLDER 'linux'
+            $Global:Config.BackupBase = Join-Path $DATA_FOLDER 'backups'
+            Save-Config
+            Write-Host ' Back to the default folders.' -ForegroundColor Green
+            Pause-Console
+        }
+        elseif ($opt -eq '1' -or $opt -eq '2') {
+            $new = (Read-Line ' New folder (full path, e.g. E:\Linux)').Trim('"')
+            if (-not $new) { continue }
+            if (-not [System.IO.Path]::IsPathRooted($new)) {
+                Write-Host ' Please type a full path that starts with a drive letter (e.g. E:\Linux).' -ForegroundColor Red
+                Pause-Console; continue
+            }
+            try {
+                if (-not (Test-Path -LiteralPath $new)) { New-Item -ItemType Directory -Path $new -Force | Out-Null }
+            } catch {
+                Write-Host " Could not create that folder: $($_.Exception.Message)" -ForegroundColor Red
+                Pause-Console; continue
+            }
+            if ($opt -eq '1') { $Global:Config.WslBase = $new } else { $Global:Config.BackupBase = $new }
+            Save-Config
+            Write-Host ' Saved.' -ForegroundColor Green
+            Pause-Console
+        }
+    }
+}
+
+# ------------------------------------------------------------------------------
 # Main menu
 # ------------------------------------------------------------------------------
 function Show-MainMenu {
@@ -1252,6 +1315,7 @@ function Show-MainMenu {
         Write-Host '   [R] Restore a backup         - "wsl --import" brings a backup back'
         Write-Host '   [K] Compact a disk           - give unused ext4.vhdx space back to Windows'
         Write-Host '   [T] Memory / CPU limits      - edit .wslconfig'
+        Write-Host '   [D] Data folders             - choose where Linux disks and backups are saved'
         Write-Host '   [U] Update / repair WSL      - runs "wsl --update" (admin)'
         Write-Host '   [Q] Quit                     - close the panel (distros keep running)'
         Write-Host ''
@@ -1303,6 +1367,7 @@ function Show-MainMenu {
         elseif ($choice -eq 'E') { Export-DistroMenu }
         elseif ($choice -eq 'R') { Import-DistroMenu }
         elseif ($choice -eq 'T') { Show-TuningMenu }
+        elseif ($choice -eq 'D') { Show-DataFoldersMenu }
         elseif ($choice -eq 'K') {
             if ($distros.Count -eq 0) { continue }
             Write-Host "`n Compact which distro?" -ForegroundColor Yellow

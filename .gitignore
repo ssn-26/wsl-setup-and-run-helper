@@ -1,10 +1,6 @@
-# Saved accounts hold a DPAPI-encrypted password blob - never commit these.
-# DPAPI blobs are tied to the current Windows user, useless and potentially
-# confusing on other machines.
-accounts/
-
-# config.json stores user-specific paths and settings.
-config.json
+# Saved accounts hold a DPAPI-encrypted password blob, and data\ also holds the
+# Linux disks (many GB) and backups - none of that belongs on GitHub.
+data/
 
 # Scratch temp files
 *.tmp
