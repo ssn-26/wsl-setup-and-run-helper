@@ -69,10 +69,12 @@ jobs:
       - name: Launcher keeps CRLF line endings
         shell: powershell
         run: |
-          $text = [IO.File]::ReadAllText((Resolve-Path WSL-Control-Panel.bat).Path)
-          if ($text -match "(^|[^`r])`n") {
-            Write-Host '::error file=WSL-Control-Panel.bat::Has LF-only line endings; it must be CRLF.'
-            exit 1
+          foreach ($bat in 'WSL-Control-Panel.bat', 'Install.bat') {
+            $text = [IO.File]::ReadAllText((Resolve-Path $bat).Path)
+            if ($text -match "(^|[^`r])`n") {
+              Write-Host "::error file=$bat::Has LF-only line endings; it must be CRLF."
+              exit 1
+            }
           }
           'CRLF OK'
 

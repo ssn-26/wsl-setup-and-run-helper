@@ -21,9 +21,10 @@ are kept.
 
 Download the ZIP from GitHub, then right-click it -> **Properties** -> tick
 **Unblock** -> OK *before* extracting (this stops Windows' "Do you want to run
-this file?" warnings). Then either right-click `install.ps1` -> **Run with
-PowerShell** to install it as above, or just double-click
-`WSL-Control-Panel.bat` to run it from the folder.
+this file?" warnings). Then double-click **`Install.bat`** to install it as
+above, or double-click `WSL-Control-Panel.bat` to run it from the folder without
+installing. (Double-clicking `install.ps1` itself only asks which app to open it
+with - Windows never runs .ps1 files on a double-click.)
 </details>
 
 Double-click it on a brand-new PC and it installs WSL for you. On a PC that
@@ -183,6 +184,7 @@ Installed, it lives in `%LOCALAPPDATA%\Programs\WSL Control Panel`:
 ```
 WSL Control Panel.exe     <- the app (built on your PC by install.ps1)
 WSL-Control-Panel.bat     runs the panel without installing (from an unzipped copy)
+Install.bat               double-click to install from an unzipped copy
 install.ps1               install / update / -Uninstall
 README.md
 LICENSE                   MIT licence
