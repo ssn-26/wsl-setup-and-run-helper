@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WSL Control Panel</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm2 4 3 2-3 2m5 0h5" /></svg>
+      </div>
+      <div>
+        <div class="brand-name">WSL Control Panel</div>
+        <div class="brand-ver">v2.0 &middot; sample</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-view="distros">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+        Distros
+      </button>
+      <button class="nav-item" data-view="backups">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM3 4h18v3H3zM10 11h4"/></svg>
+        Backups
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+        Settings
+      </button>
+    </nav>
+
+    <div class="wsl-card">
+      <div class="wsl-row"><span class="dot on"></span><b>WSL is running</b></div>
+      <div class="muted small" id="wsl-mem">1 of 3 distros on &middot; 3.1 GB RAM</div>
+      <button class="btn ghost small full" id="btn-shutdown">
+        <svg viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+        Shut down all
+      </button>
+    </div>
+
+    <button class="theme-toggle" id="theme-toggle" title="Switch light / dark">
+      <svg class="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/></svg>
+      <span id="theme-label">Dark</span>
+    </button>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Distros -->
+    <section class="view" id="view-distros">
+      <header class="page-head">
+        <div>
+          <h1>Your Linux distros</h1>
+          <p class="muted">Open a desktop or terminal, or pick one to manage it.</p>
+        </div>
+        <button class="btn primary" id="btn-download">
+          <svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>
+          Download a distro
+        </button>
+      </header>
+      <div class="grid" id="distro-grid"></div>
+      <p class="muted small hidden-note">Hidden: docker-desktop (belongs to Docker Desktop)</p>
+    </section>
+
+    <!-- Distro detail -->
+    <section class="view" id="view-distro" hidden>
+      <button class="back" data-view="distros">
+        <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg> All distros
+      </button>
+      <div id="distro-detail"></div>
+    </section>
+
+    <!-- Backups -->
+    <section class="view" id="view-backups" hidden>
+      <header class="page-head">
+        <div>
+          <h1>Backups</h1>
+          <p class="muted">A backup holds everything inside a distro: programs, desktop, users and files.</p>
+        </div>
+        <div class="row">
+          <button class="btn" id="btn-restore">
+            <svg viewBox="0 0 24 24"><path d="M12 20V9m0 0-4 4m4-4 4 4M5 4h14"/></svg>
+            Restore a file&hellip;
+          </button>
+          <button class="btn primary" id="btn-backup">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM3 4h18v3H3zM10 11h4"/></svg>
+            Back up now
+          </button>
+        </div>
+      </header>
+      <div class="list" id="backup-list"></div>
+    </section>
+
+    <!-- Settings -->
+    <section class="view" id="view-settings" hidden>
+      <header class="page-head">
+        <div>
+          <h1>Settings</h1>
+          <p class="muted">How much of your PC WSL may use, and where its files are kept.</p>
+        </div>
+      </header>
+
+      <div class="panel">
+        <h2>Memory and CPU limits</h2>
+        <p class="muted small">Saved in .wslconfig. Your other settings in that file are kept.</p>
+        <div class="presets" id="presets">
+          <button class="preset" data-p="4,2,2">Light<span>4 GB &middot; 2 CPUs</span></button>
+          <button class="preset active" data-p="8,4,4">Balanced<span>8 GB &middot; 4 CPUs</span></button>
+          <button class="preset" data-p="16,6,8">Heavy<span>16 GB &middot; 6 CPUs</span></button>
+        </div>
+        <label class="slider">Memory <b id="mem-val">8 GB</b>
+          <input type="range" id="mem" min="2" max="32" step="1" value="8"></label>
+        <label class="slider">Processors <b id="cpu-val">4</b>
+          <input type="range" id="cpu" min="1" max="16" step="1" value="4"></label>
+        <label class="slider">Swap <b id="swap-val">4 GB</b>
+          <input type="range" id="swap" min="0" max="16" step="1" value="4"></label>
+        <div class="row end"><button class="btn primary" id="btn-limits">Save limits</button></div>
+      </div>
+
+      <div class="panel">
+        <h2>Data folders</h2>
+        <div class="folder"><div><b>Linux disks</b><div class="muted small mono">D:\linux\wsl-setup-and-run-helper\data\linux</div></div><button class="btn small">Change&hellip;</button></div>
+        <div class="folder"><div><b>Backups</b><div class="muted small mono">D:\linux\wsl-setup-and-run-helper\data\backups</div></div><button class="btn small">Change&hellip;</button></div>
+      </div>
+
+      <div class="panel">
+        <h2>WSL itself</h2>
+        <div class="folder"><div><b>Update / repair WSL</b><div class="muted small">Fixes many "won't start" problems. Asks for administrator rights.</div></div><button class="btn small" id="btn-update">Update</button></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Dialogs -->
+<div class="overlay" id="overlay" hidden>
+  <div class="dialog" id="dialog"></div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

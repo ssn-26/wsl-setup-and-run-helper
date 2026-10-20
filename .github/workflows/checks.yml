@@ -21,6 +21,10 @@ jobs:
           shellcheck --severity=warning bash/*.sh
           shellcheck --severity=warning -s sh bash/xsession
 
+      # Temporary, while the window samples are in the repo.
+      - name: Web sample JavaScript parses
+        run: node --check samples/web/app.js
+
       - name: LF line endings in bash/
         run: |
           if grep -rlI $'\r' bash/; then
@@ -69,6 +73,14 @@ jobs:
             exit 1
           }
           'CRLF OK'
+
+      # Temporary, while the window samples are in the repo: build the native
+      # sample window (XAML + all event wiring) without showing it.
+      - name: Native sample window loads
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File samples/native/Sample.ps1 -Validate
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # Report only: style findings are worth reading but do not fail the build.
       - name: PSScriptAnalyzer (report only)
