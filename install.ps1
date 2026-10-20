@@ -11,7 +11,7 @@
 # the desktop and Settings > Apps (to uninstall). Running it again updates the
 # panel and keeps your saved logins and settings (the data folder).
 #
-# From an unzipped copy instead: right-click install.ps1 > Run with PowerShell,
+# From an unzipped copy instead: double-click Install.bat,
 # or  powershell -ExecutionPolicy Bypass -File install.ps1 [-From <folder>]
 # Remove:  install.ps1 -Uninstall  (or Settings > Apps > WSL Control Panel)
 #
@@ -64,7 +64,7 @@ function Copy-PanelFiles([string]$src, [string]$dest) {
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
         Copy-Item -LiteralPath (Join-Path $src $d) -Destination $target -Recurse -Force
     }
-    foreach ($f in 'WSL-Control-Panel.bat', 'install.ps1', 'README.md', 'LICENSE') {
+    foreach ($f in 'WSL-Control-Panel.bat', 'Install.bat', 'install.ps1', 'README.md', 'LICENSE') {
         $p = Join-Path $src $f
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $dest $f) -Force }
     }
