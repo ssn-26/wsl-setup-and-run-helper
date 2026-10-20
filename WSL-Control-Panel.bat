@@ -1,8 +1,9 @@
 :: ================================================================
 :: WSL Control Panel - start file. Double-click this to open the panel.
 ::
-:: Opens the window (powershell\WSL-Control-Panel.ps1) without a console
-:: window behind it. Keep this file CRLF (Windows line endings).
+:: Opens the window (powershell\WSL-Control-Panel.ps1). For no console window
+:: and no security warnings, install it instead (see install.ps1 / README).
+:: Keep this file CRLF (Windows line endings).
 :: ================================================================
 @echo off
 setlocal
@@ -15,6 +16,12 @@ if not exist "%PS_SCRIPT%" (
     echo.
     pause
     exit /b 1
+)
+
+:: Installed with install.ps1: start the app itself (no console window at all).
+if exist "%~dp0WSL Control Panel.exe" (
+    start "" "%~dp0WSL Control Panel.exe"
+    exit /b 0
 )
 
 :: -STA: the window needs it. Errors show in a message box from the panel.

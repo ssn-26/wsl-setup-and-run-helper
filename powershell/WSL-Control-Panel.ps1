@@ -5,7 +5,8 @@
 # desktops (xrdp + Remote Desktop, or Win-KeX on Kali), backup / restore, disk
 # compaction, .wslconfig limits.
 #
-# Start it with the WSL-Control-Panel.bat launcher. All the work is done by
+# Start it with "WSL Control Panel.exe" (built by install.ps1) or the
+# WSL-Control-Panel.bat launcher. All the work is done by
 # Engine.ps1 (dot-sourced below); this file is only the window. Long jobs run
 # in a background runspace that loads the same engine, so the window never
 # freezes. -Validate builds the window without showing it (used by CI).
@@ -22,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in the window, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '2.1.0'
+$PANEL_VERSION = '2.2.0'
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
@@ -38,6 +39,7 @@ trap {
 
 $ENGINE = Join-Path $PSScriptRoot 'Engine.ps1'
 . $ENGINE
+. (Join-Path $PSScriptRoot 'AppIcon.ps1')
 
 # ------------------------------------------------------------------------------
 # The window: every x:Name in the XAML becomes $ui.<Name>
@@ -50,6 +52,7 @@ foreach ($m in [regex]::Matches($xamlText, 'x:Name="([A-Za-z0-9_]+)"')) {
     if ($el) { $ui[$m.Groups[1].Value] = $el }
 }
 $ui.VersionText.Text = "v$PANEL_VERSION"
+$ui.TitleVersion.Text = "v$PANEL_VERSION"
 $MIDDOT = [string][char]0x00B7
 
 # ------------------------------------------------------------------------------
@@ -87,13 +90,7 @@ function Get-WindowsTheme {
     return 'Dark'
 }
 
-# The accent colour chosen in Windows (stored as ABGR), as '#RRGGBB'.
-function Get-WindowsAccent {
-    try {
-        $v = [int64](Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\DWM' -Name AccentColor -ErrorAction Stop) -band 0xFFFFFFFF
-        return ('#{0:X2}{1:X2}{2:X2}' -f ($v -band 0xFF), (($v -shr 8) -band 0xFF), (($v -shr 16) -band 0xFF))
-    } catch { return '#0078D4' }
-}
+# (Get-WindowsAccent, the accent colour chosen in Windows, is in AppIcon.ps1.)
 
 # Mixes two '#RRGGBB' colours: $t = 0 gives $a, 1 gives $b.
 function Get-MixedColor([string]$a, [string]$b, [double]$t) {
@@ -122,18 +119,20 @@ function Get-AccentRoles([string]$name) {
 # matches the theme, through dwmapi (compiled by .NET itself - nothing to
 # install). On Windows 10 the calls fail quietly and the plain colours stay.
 # ------------------------------------------------------------------------------
-if (-not ('WslPanel.Dwm' -as [type])) {
+if (-not ('WslPanel.Win32' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 namespace WslPanel {
-    public static class Dwm {
+    public static class Win32 {
         [StructLayout(LayoutKind.Sequential)]
         public struct MARGINS { public int Left; public int Right; public int Top; public int Bottom; }
         [DllImport("dwmapi.dll")]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
         [DllImport("dwmapi.dll")]
         public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
+        [DllImport("user32.dll")]
+        public static extern int GetSystemMetrics(int index);
     }
 }
 '@
@@ -146,7 +145,7 @@ $script:Hwnd = [IntPtr]::Zero
 function Set-TitleBarTheme {
     if ($script:Hwnd -eq [IntPtr]::Zero) { return }
     $dark = [int]($script:Theme -eq 'Dark')
-    try { [void][WslPanel.Dwm]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$dark, 4) } catch { }
+    try { [void][WslPanel.Win32]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$dark, 4) } catch { }
 }
 
 # Turns on Mica (Windows 11 22H2 and later). $true when it is on.
@@ -155,14 +154,45 @@ function Enable-Mica {
         $script:Hwnd = (New-Object System.Windows.Interop.WindowInteropHelper($win)).EnsureHandle()
         Set-TitleBarTheme
         $mica = 2   # DWMSBT_MAINWINDOW
-        if ([WslPanel.Dwm]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_SYSTEMBACKDROP_TYPE, [ref]$mica, 4) -ne 0) { return $false }
-        $m = New-Object WslPanel.Dwm+MARGINS
+        if ([WslPanel.Win32]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_SYSTEMBACKDROP_TYPE, [ref]$mica, 4) -ne 0) { return $false }
+        $m = New-Object WslPanel.Win32+MARGINS
         $m.Left = -1; $m.Right = -1; $m.Top = -1; $m.Bottom = -1
-        [void][WslPanel.Dwm]::DwmExtendFrameIntoClientArea($script:Hwnd, [ref]$m)
+        [void][WslPanel.Win32]::DwmExtendFrameIntoClientArea($script:Hwnd, [ref]$m)
         [System.Windows.Interop.HwndSource]::FromHwnd($script:Hwnd).CompositionTarget.BackgroundColor = [Windows.Media.Colors]::Transparent
         return $true
     } catch { return $false }
 }
+
+# With Mica on, the window draws its own title area like Settings: the app
+# name sits in the Mica, and Windows still draws the caption buttons, the
+# snap layouts menu and the resize border.
+$script:Chrome = $false
+function Enable-TitleBar {
+    try {
+        $c = New-Object System.Windows.Shell.WindowChrome
+        $c.CaptionHeight = 40
+        $c.GlassFrameThickness = New-Object Windows.Thickness -ArgumentList (-1)
+        $c.ResizeBorderThickness = [Windows.SystemParameters]::WindowResizeBorderThickness
+        $c.UseAeroCaptionButtons = $true
+        $c.CornerRadius = New-Object Windows.CornerRadius 0
+        [System.Windows.Shell.WindowChrome]::SetWindowChrome($win, $c)
+        $ui.TitleBar.Visibility = 'Visible'
+        $ui.NavTitle.Visibility = 'Collapsed'
+        return $true
+    } catch { return $false }
+}
+# A maximised window reaches past the screen edges by its (invisible) frame;
+# move the content in by that much so nothing is cut off.
+function Update-MaximizedMargin {
+    if (-not $script:Chrome) { return }
+    if ($win.WindowState -ne 'Maximized') { $ui.RootGrid.Margin = New-Object Windows.Thickness 0; return }
+    $px = 8
+    try { $px = [WslPanel.Win32]::GetSystemMetrics(32) + [WslPanel.Win32]::GetSystemMetrics(92) } catch { }
+    $scale = 1.0
+    try { $scale = [Windows.Media.VisualTreeHelper]::GetDpi($win).DpiScaleX } catch { }
+    $ui.RootGrid.Margin = New-Object Windows.Thickness ($px / $scale)
+}
+$win.Add_StateChanged({ Update-MaximizedMargin })
 
 $script:Theme = 'Dark'
 function Set-Theme([string]$name) {
@@ -176,22 +206,29 @@ function Set-Theme([string]$name) {
     Set-TitleBarTheme
 }
 
-# The app's icon (window, taskbar and the top of the navigation pane): a
-# terminal window drawn in white on the Windows accent colour.
-function New-AppIcon {
-    $dv = New-Object Windows.Media.DrawingVisual
-    $dc = $dv.RenderOpen()
-    $dc.DrawRoundedRectangle((New-Brush (Get-WindowsAccent)), $null, (New-Object Windows.Rect 0, 0, 64, 64), 14, 14)
-    $pen = New-Object Windows.Media.Pen ((New-Brush '#FFFFFF'), 5)
-    $pen.StartLineCap = 'Round'; $pen.EndLineCap = 'Round'; $pen.LineJoin = 'Round'
-    $dc.DrawRoundedRectangle($null, $pen, (New-Object Windows.Rect 12, 14, 40, 36), 6, 6)
-    $dc.DrawGeometry($null, $pen, [Windows.Media.Geometry]::Parse('M 21,26 L 28,32 L 21,38'))
-    $dc.DrawLine($pen, (New-Object Windows.Point 32, 38), (New-Object Windows.Point 42, 38))
-    $dc.Close()
-    $bmp = New-Object Windows.Media.Imaging.RenderTargetBitmap 64, 64, 96, 96, ([Windows.Media.PixelFormats]::Pbgra32)
-    $bmp.Render($dv)
-    $bmp.Freeze()
-    return $bmp
+# ------------------------------------------------------------------------------
+# Motion, with the timings of Windows 11 (WinUI): short and easing out. Off
+# when Windows' "Animation effects" setting is off.
+# ------------------------------------------------------------------------------
+$script:Motion = [bool][Windows.SystemParameters]::ClientAreaAnimation
+$EaseOut = New-Object Windows.Media.Animation.CubicEase
+$EaseOut.EasingMode = 'EaseOut'
+$EaseOut.Freeze()
+
+# Animates $prop of $target from $from to $to in $ms milliseconds (or jumps
+# straight to the end without motion).
+function Start-Motion($target, $prop, [double]$from, [double]$to, [int]$ms) {
+    if (-not $script:Motion) { $target.BeginAnimation($prop, $null); $target.SetValue($prop, $to); return }
+    $a = New-Object Windows.Media.Animation.DoubleAnimation -ArgumentList $from, $to, (New-Object Windows.Duration ([TimeSpan]::FromMilliseconds($ms)))
+    $a.EasingFunction = $EaseOut
+    $target.BeginAnimation($prop, $a)
+}
+$OPACITY = [Windows.UIElement]::OpacityProperty
+
+# The distro page slides up a little and fades in when you pick a distro.
+function Start-PageEntrance {
+    Start-Motion $ui.PageBody $OPACITY 0 1 250
+    Start-Motion $ui.PageShift ([Windows.Media.TranslateTransform]::YProperty) 16 0 300
 }
 
 # ------------------------------------------------------------------------------
@@ -224,19 +261,40 @@ function Show-Toast([string]$msg, [string]$kind = 'Ok') {
         }
     }
     $ui.Toast.Visibility = 'Visible'
+    Start-Motion $ui.Toast $OPACITY 0 1 200
+    Start-Motion $ui.ToastShift ([Windows.Media.TranslateTransform]::YProperty) -12 0 250
     $script:ToastTimer.Stop(); $script:ToastTimer.Start()
 }
 $ui.ToastClose.Add_Click({ $ui.Toast.Visibility = 'Collapsed'; $script:ToastTimer.Stop() })
 
 $Panels = 'PanelMessage', 'PanelUser', 'PanelTask', 'PanelDelete', 'PanelPick', 'PanelDownload', 'PanelBackup',
           'PanelRestore', 'PanelLimits', 'PanelFolders'
+# The main button of each dialog, pressed by Enter.
+$DefaultButtons = @{ PanelMessage = 'MsgB1'; PanelUser = 'BtnUserOk'; PanelDelete = 'BtnDelOk'; PanelPick = 'PickB1'
+                     PanelDownload = 'BtnDlOk'; PanelBackup = 'BtnBakOk'; PanelRestore = 'BtnResOk'; PanelFolders = 'BtnFolClose' }
+$script:OpenPanel = ''
+$script:ClosedAt = [datetime]::MinValue
 function Open-Panel([string]$name, [int]$width = 520) {
     foreach ($p in $Panels) { $ui[$p].Visibility = 'Collapsed' }
     $ui[$name].Visibility = 'Visible'
     $ui.DialogCard.Width = $width
+    $script:OpenPanel = $name
+    $wasOpen = ($ui.Overlay.Visibility -eq 'Visible')
     $ui.Overlay.Visibility = 'Visible'
+    # Like a ContentDialog: the dimmed layer fades in and the dialog settles
+    # from slightly larger. One dialog straight after another only swaps.
+    if (-not $wasOpen -and ([datetime]::Now - $script:ClosedAt).TotalMilliseconds -gt 150) {
+        Start-Motion $ui.Overlay $OPACITY 0 1 167
+        Start-Motion $ui.DialogScale ([Windows.Media.ScaleTransform]::ScaleXProperty) 1.05 1 250
+        Start-Motion $ui.DialogScale ([Windows.Media.ScaleTransform]::ScaleYProperty) 1.05 1 250
+    }
+    Start-Motion $ui.DialogCard $OPACITY 0 1 167
 }
-function Close-Dialog { $ui.Overlay.Visibility = 'Collapsed' }
+function Close-Dialog {
+    $ui.Overlay.Visibility = 'Collapsed'
+    $script:OpenPanel = ''
+    $script:ClosedAt = [datetime]::Now
+}
 
 # A message with up to three buttons. Each button is @{ Text; Style; Do }:
 # Style is 'Primary', 'Btn' or 'DangerBtn'; Do is a scriptblock run after the
@@ -265,6 +323,10 @@ function Invoke-MsgButton([int]$i) {
     $b = $script:MsgButtons[$i]
     Close-Dialog
     if ($b -and $b.Do) { & $b.Do }
+}
+# Presses a button from code (keyboard shortcuts), as a click would.
+function Invoke-Button($b) {
+    if ($b -and $b.IsEnabled -and $b.IsVisible) { $b.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
 }
 function Show-Info([string]$title, [string]$text) { Show-Message $title $text @(@{ Text = 'OK' }) }
 
@@ -388,9 +450,12 @@ function Update-DistroList {
     $keep = $null
     if ($ui.DistroList.SelectedItem) { $keep = $ui.DistroList.SelectedItem.Name }
     if ($script:SelectNext) { $keep = $script:SelectNext; $script:SelectNext = $null }
-    $ui.DistroList.ItemsSource = $items
-    $pick = @($items | Where-Object { $_.Name -eq $keep }) | Select-Object -First 1
-    if ($pick) { $ui.DistroList.SelectedItem = $pick } elseif ($items.Count) { $ui.DistroList.SelectedIndex = 0 }
+    $script:Refreshing = $true   # a refresh re-selects without the page animation
+    try {
+        $ui.DistroList.ItemsSource = $items
+        $pick = @($items | Where-Object { $_.Name -eq $keep }) | Select-Object -First 1
+        if ($pick) { $ui.DistroList.SelectedItem = $pick } elseif ($items.Count) { $ui.DistroList.SelectedIndex = 0 }
+    } finally { $script:Refreshing = $false }
     $ui.NoDistros.Visibility = $(if ($items.Count) { 'Collapsed' } else { 'Visible' })
     $ui.BtnQuickOpen.IsEnabled = ($items.Count -gt 0)
     if ($hidden.Count) {
@@ -409,7 +474,19 @@ function Get-CurrentDistro {
 $OPEN_MYSELF = 'Type my login myself'
 function Show-DistroPage {
     $d = Get-CurrentDistro
-    if (-not $d) { $ui.DistroPage.Visibility = 'Collapsed'; $ui.EmptyPage.Visibility = 'Visible'; return }
+    if (-not $d) {
+        $ui.DistroPage.Visibility = 'Collapsed'; $ui.EmptyPage.Visibility = 'Visible'
+        if ($script:Distros.Count) {
+            $ui.EmptyTitle.Text = 'Pick a distro'
+            $ui.EmptyText.Text = 'Choose one on the left to open it or change its settings.'
+            $ui.BtnEmptyDownload.Visibility = 'Collapsed'
+        } else {
+            $ui.EmptyTitle.Text = 'No Linux distros yet'
+            $ui.EmptyText.Text = "Download one from Microsoft's official list - Ubuntu is a good first choice. It takes a few minutes."
+            $ui.BtnEmptyDownload.Visibility = 'Visible'
+        }
+        return
+    }
     $ui.DistroPage.Visibility = 'Visible'; $ui.EmptyPage.Visibility = 'Collapsed'
     $running = ($d.State -eq 'Running')
     $ui.HeroInitial.Text = $d.Name.Substring(0, 1).ToUpper()
@@ -431,7 +508,75 @@ function Show-DistroPage {
     # "Open as": the saved logins, or none (you type your login yourself).
     $ui.OpenAsList.ItemsSource = @(@($accounts | ForEach-Object { $_.Username }) + $OPEN_MYSELF)
     $ui.OpenAsList.SelectedIndex = 0
+    Update-LiveStatus
 }
+
+# ------------------------------------------------------------------------------
+# Live status tiles: the distro's disk and the memory of the WSL VM. Only cheap
+# reads (a file size, the free space, one process), so a timer can refresh them
+# every few seconds without ever calling wsl.exe.
+# ------------------------------------------------------------------------------
+$script:TotalRamGB = 0
+try { $script:TotalRamGB = [double](Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB } catch { }
+
+# How much memory WSL may use: memory= in .wslconfig, else WSL's default
+# (half of the PC's memory). 0 when unknown.
+function Get-WslMemoryLimitGB {
+    try {
+        $path = Get-WslConfigPath
+        if (Test-Path -LiteralPath $path) {
+            foreach ($line in Get-Content -LiteralPath $path) {
+                if ($line -match '^\s*memory\s*=\s*([\d.]+)\s*(GB|MB|G|M)?\s*$') {
+                    $n = [double]$Matches[1]
+                    if ($Matches[2] -match '^M') { return $n / 1024 }
+                    return $n
+                }
+            }
+        }
+    } catch { }
+    return ($script:TotalRamGB / 2)
+}
+
+$script:VmWasUp = $false
+function Update-LiveStatus {
+    $d = Get-CurrentDistro
+    if (-not $d -or $ui.DistroPage.Visibility -ne 'Visible') { return }
+    $vhd = Get-DistroVhdInfo $d.Name
+    $ui.LiveDisk.Text = '{0:N1} GB' -f [double]$vhd.SizeGB
+    $ui.LiveDiskBar.Value = 0
+    $ui.LiveDiskNote.Text = 'Its disk file was not found'
+    if ($vhd.Exists) {
+        try {
+            $drive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($vhd.VhdxPath))
+            $free = $drive.AvailableFreeSpace / 1GB; $total = $drive.TotalSize / 1GB
+            $ui.LiveDiskNote.Text = '{0} {1:N0} GB free of {2:N0} GB' -f $drive.Name.TrimEnd('\'), $free, $total
+            if ($total -gt 0) { $ui.LiveDiskBar.Value = 100 * ($total - $free) / $total }
+        } catch { }
+    }
+
+    $vm = @(Get-Process -Name VmmemWSL -ErrorAction SilentlyContinue)
+    if ($vm.Count) {
+        $used = ($vm | Measure-Object -Property WorkingSet64 -Sum).Sum / 1GB
+        $limit = Get-WslMemoryLimitGB
+        $ui.LiveMem.Text = '{0:N1} GB' -f $used
+        $ui.LiveMemNote.Text = $(if ($limit -gt 0) { 'In use, of the {0:N1} GB WSL may use' -f $limit } else { 'In use' })
+        $ui.LiveMemBar.Value = $(if ($limit -gt 0) { [math]::Min(100, 100 * $used / $limit) } else { 0 })
+        $script:VmWasUp = $true
+    } else {
+        $ui.LiveMem.Text = '0 GB'
+        $ui.LiveMemNote.Text = 'WSL is not running'
+        $ui.LiveMemBar.Value = 0
+        # WSL stopped by itself (idle timeout, or closed elsewhere): show that.
+        if ($script:VmWasUp) {
+            $script:VmWasUp = $false
+            if (@($script:Distros | Where-Object { $_.State -eq 'Running' }).Count) { Update-DistroList }
+        }
+    }
+}
+
+$script:LiveTimer = New-Object Windows.Threading.DispatcherTimer
+$script:LiveTimer.Interval = [TimeSpan]::FromSeconds(5)
+$script:LiveTimer.Add_Tick({ if (-not $script:TaskHandle -and $win.IsActive) { Update-LiveStatus } })
 
 # The saved login chosen under "Open as" ('' = none).
 function Get-OpenAsAccount {
@@ -708,7 +853,8 @@ function Start-Compact([bool]$sparse) {
     }
 }
 
-$ui.DistroList.Add_SelectionChanged({ Show-DistroPage })
+$ui.DistroList.Add_SelectionChanged({ Show-DistroPage; if (-not $script:Refreshing) { Start-PageEntrance } })
+$ui.BtnEmptyDownload.Add_Click({ Invoke-Button $ui.BtnDownload })
 $ui.BtnDesktop.Add_Click({ Start-OpenCurrent 'Desktop' })
 $ui.BtnTerminal.Add_Click({ Start-OpenCurrent 'Terminal' })
 $ui.BtnQuickOpen.Add_Click({
@@ -1042,7 +1188,26 @@ $ui.BtnTheme.Add_Click({ Set-Theme $(if ($script:Theme -eq 'Dark') { 'Light' } e
 
 # Esc / a click beside a dialog closes it - but never while a task runs.
 $ui.Overlay.Add_MouseLeftButtonDown({ param($s, $e) if ($e.OriginalSource -eq $ui.Overlay -and -not $script:TaskHandle) { Close-Dialog } })
-$win.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape' -and -not $script:TaskHandle -and $ui.Overlay.Visibility -eq 'Visible') { Close-Dialog } })
+# Keyboard: Esc closes a dialog, Enter presses its main button, F5 refreshes,
+# Ctrl+1 to Ctrl+9 pick a distro.
+$win.Add_KeyDown({
+    param($s, $e)
+    if ($script:TaskHandle) { return }
+    $dialog = ($ui.Overlay.Visibility -eq 'Visible')
+    $ctrl = ([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -ne 0
+    if ($dialog) {
+        if ($e.Key -eq 'Escape') { Close-Dialog; $e.Handled = $true }
+        elseif ($e.Key -eq 'Return' -and $DefaultButtons.ContainsKey($script:OpenPanel)) {
+            Invoke-Button $ui[$DefaultButtons[$script:OpenPanel]]; $e.Handled = $true
+        }
+    } elseif ($e.Key -eq 'F5') {
+        Update-DistroList; $e.Handled = $true
+    } elseif ($ctrl -and $e.Key -ge [Windows.Input.Key]::D1 -and $e.Key -le [Windows.Input.Key]::D9) {
+        $i = [int]$e.Key - [int][Windows.Input.Key]::D1
+        if ($i -lt $ui.DistroList.Items.Count) { $ui.DistroList.SelectedIndex = $i; [void]$ui.DistroList.Focus() }
+        $e.Handled = $true
+    }
+})
 $win.Add_Closing({ param($s, $e) if ($script:TaskHandle) { $e.Cancel = $true; Show-Toast 'Please wait - a task is still running.' 'Warn' } })
 
 # Anything unexpected inside a click is shown instead of closing the window.
@@ -1082,10 +1247,12 @@ function Show-FirstRun {
 # ------------------------------------------------------------------------------
 $script:Theme = Get-WindowsTheme
 $script:Mica = Enable-Mica
+if ($script:Mica) { $script:Chrome = Enable-TitleBar }
 Set-Theme $script:Theme
-$appIcon = New-AppIcon
+$appIcon = New-AppIconBitmap 64 (Get-WindowsAccent)
 $win.Icon = $appIcon
 $ui.AppIcon.Source = $appIcon
+$ui.TitleIcon.Source = $appIcon
 Initialize-Worker
 Update-DistroList
 
@@ -1102,11 +1269,18 @@ if ($Validate) {
     $ok = $ps.Invoke()
     if (-not $ok -or -not $ok[0]) { throw 'The background worker did not load the engine.' }
     Show-Toast 'Test' 'Ok'; Show-Toast 'Test' 'Warn'; Show-Toast 'Test' 'Error'
-    "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found, Mica: $($script:Mica), accent: $(Get-WindowsAccent)"
+    # Motion, keyboard and live status.
+    $script:Motion = $true; Start-PageEntrance; Close-Dialog; $script:ClosedAt = [datetime]::MinValue; Open-Panel 'PanelMessage'
+    $script:Motion = $false; Start-PageEntrance; Close-Dialog
+    foreach ($k in $DefaultButtons.Keys) { if (-not $ui[$DefaultButtons[$k]]) { throw "No main button for $k" } }
+    Update-LiveStatus; [void](Get-WslMemoryLimitGB)
+    $win.WindowState = 'Maximized'; Update-MaximizedMargin; $win.WindowState = 'Normal'
+    "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found, Mica: $($script:Mica), title bar: $($script:Chrome), accent: $(Get-WindowsAccent), RAM: $([math]::Round($script:TotalRamGB, 1)) GB"
     exit 0
 }
 
 $win.Add_ContentRendered({
+    $script:LiveTimer.Start()
     Unblock-PanelFiles
     if ((Get-WslState) -ne 'Ready') { Show-FirstRun }
 })
