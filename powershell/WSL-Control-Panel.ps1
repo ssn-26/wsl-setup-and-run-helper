@@ -517,7 +517,8 @@ function Show-DistroPage {
 # every few seconds without ever calling wsl.exe.
 # ------------------------------------------------------------------------------
 $script:TotalRamGB = 0
-try { $script:TotalRamGB = [double](Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB } catch { }
+# (Read directly from Windows: a WMI query can take many seconds on a cold start.)
+try { Add-Type -AssemblyName Microsoft.VisualBasic; $script:TotalRamGB = [double](New-Object Microsoft.VisualBasic.Devices.ComputerInfo).TotalPhysicalMemory / 1GB } catch { }
 
 # How much memory WSL may use: memory= in .wslconfig, else WSL's default
 # (half of the PC's memory). 0 when unknown.
