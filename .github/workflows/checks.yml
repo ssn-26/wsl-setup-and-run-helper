@@ -39,24 +39,30 @@ jobs:
       - name: Parses with Windows PowerShell 5.1
         shell: powershell
         run: |
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path powershell/WSL-Control-Panel.ps1).Path, [ref]$null, [ref]$errors)
-          if ($errors) {
-            $errors | ForEach-Object { Write-Host "::error file=powershell/WSL-Control-Panel.ps1,line=$($_.Extent.StartLineNumber)::$($_.Message)" }
-            exit 1
+          $bad = 0
+          foreach ($f in Get-ChildItem powershell -Recurse -Filter *.ps1) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
+            $rel = Resolve-Path -Relative $f.FullName
+            foreach ($e in $errors) { Write-Host "::error file=$rel,line=$($e.Extent.StartLineNumber)::$($e.Message)"; $bad++ }
+            if (-not $errors) { "Parsed OK: $rel" }
           }
-          "Parsed OK with PowerShell $($PSVersionTable.PSVersion)"
+          if ($bad) { exit 1 }
+          "PowerShell $($PSVersionTable.PSVersion)"
 
       # 5.1 reads a BOM-less script as ANSI, so any non-ASCII byte can break it.
-      - name: Panel script is plain ASCII
+      - name: Scripts are plain ASCII
         shell: powershell
         run: |
-          $lines = [IO.File]::ReadAllLines((Resolve-Path powershell/WSL-Control-Panel.ps1).Path)
-          $bad = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '[^\x00-\x7F]') { $i + 1 } })
-          if ($bad.Count) {
-            $bad | ForEach-Object { Write-Host "::error file=powershell/WSL-Control-Panel.ps1,line=$_::Non-ASCII character" }
-            exit 1
+          $bad = 0
+          foreach ($f in Get-ChildItem powershell -Recurse -Filter *.ps1) {
+            $lines = [IO.File]::ReadAllLines($f.FullName)
+            $rel = Resolve-Path -Relative $f.FullName
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -match '[^\x00-\x7F]') { Write-Host "::error file=$rel,line=$($i + 1)::Non-ASCII character"; $bad++ }
+            }
           }
+          if ($bad) { exit 1 }
           'Plain ASCII'
 
       # cmd.exe can fail to find labels in a .bat with Unix (LF) line endings.
@@ -70,6 +76,14 @@ jobs:
           }
           'CRLF OK'
 
+      # Builds the real window (XAML, every event handler, every dialog and the
+      # background worker) without showing it.
+      - name: Window builds
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File powershell/WSL-Control-Panel.ps1 -Validate
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       # Report only: style findings are worth reading but do not fail the build.
       - name: PSScriptAnalyzer (report only)
         continue-on-error: true
@@ -78,5 +92,5 @@ jobs:
           if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
             Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
           }
-          Invoke-ScriptAnalyzer -Path powershell\WSL-Control-Panel.ps1 -Severity Error, Warning |
+          Invoke-ScriptAnalyzer -Path powershell -Recurse -Severity Error, Warning |
             Format-Table Line, Severity, RuleName, Message -AutoSize -Wrap | Out-String -Width 220
