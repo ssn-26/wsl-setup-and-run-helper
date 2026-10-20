@@ -1,12 +1,11 @@
 :: ================================================================
 :: WSL Control Panel - start file. Double-click this to open the panel.
 ::
-:: Thin launcher for powershell\WSL-Control-Panel.ps1, which holds the logic.
-:: Keep this file CRLF (Windows line endings).
+:: Opens the window (powershell\WSL-Control-Panel.ps1) without a console
+:: window behind it. Keep this file CRLF (Windows line endings).
 :: ================================================================
 @echo off
 setlocal
-title WSL Control Panel
 
 set "PS_SCRIPT=%~dp0powershell\WSL-Control-Panel.ps1"
 if not exist "%PS_SCRIPT%" (
@@ -18,12 +17,6 @@ if not exist "%PS_SCRIPT%" (
     exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%"
-set "RC=%errorlevel%"
-if not "%RC%"=="0" (
-    echo.
-    echo  The panel stopped with an error ^(code %RC%^). Read the message above.
-    pause
-)
+:: -STA: the window needs it. Errors show in a message box from the panel.
+start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%PS_SCRIPT%"
 endlocal
-exit /b %RC%
