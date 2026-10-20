@@ -23,7 +23,10 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in the window, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '2.2.1'
+$PANEL_VERSION = '2.3.0'
+# Where releases are published (the Update button gets them from here).
+$RELEASES_REPO = 'ssn-26/wsl-setup-and-run-helper'
+$SETUP_ASSET = 'WSL-Control-Panel-Setup.exe'
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
@@ -1250,6 +1253,78 @@ $win.Dispatcher.Add_UnhandledException({
 })
 
 # ------------------------------------------------------------------------------
+# Updates: on start the app asks GitHub (in the background) for the latest
+# release. If it is newer, a card offers "Update now": the app downloads the
+# Setup itself - so Windows shows no SmartScreen warning - runs it silently
+# into this folder, closes, and the Setup opens the new version.
+# ------------------------------------------------------------------------------
+$script:Update = $null
+$script:UpdPs = $null
+$script:UpdTimer = New-Object Windows.Threading.DispatcherTimer
+$script:UpdTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+
+function Start-UpdateCheck {
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript({
+        param($repo, $asset)
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -TimeoutSec 15 -UseBasicParsing `
+                                   -Headers @{ 'User-Agent' = 'WSL-Control-Panel' }
+            $file = @($r.assets | Where-Object { $_.name -eq $asset }) | Select-Object -First 1
+            @{ Version = ([string]$r.tag_name).TrimStart('v'); Page = [string]$r.html_url
+               Url = $(if ($file) { [string]$file.browser_download_url } else { '' }) }
+        } catch { $null }   # offline, or GitHub busy: just no update card
+    }.ToString()).AddArgument($RELEASES_REPO).AddArgument($SETUP_ASSET)
+    $script:UpdPs = $ps
+    $script:UpdHandle = $ps.BeginInvoke()
+    $script:UpdTimer.Start()
+}
+
+$script:UpdTimer.Add_Tick({
+    if (-not $script:UpdHandle.IsCompleted) { return }
+    $script:UpdTimer.Stop()
+    $r = $null
+    try { $out = $script:UpdPs.EndInvoke($script:UpdHandle); if ($out.Count) { $r = $out[0] } } catch { }
+    $script:UpdPs.Dispose()
+    if ($r -is [psobject]) { $r = $r.PSObject.BaseObject }
+    Show-UpdateCard $r
+})
+
+function Show-UpdateCard($r) {
+    $newer = $false
+    try { $newer = ($r -and [version]$r.Version -gt [version]$PANEL_VERSION) } catch { }
+    if (-not $newer) { $ui.UpdateCard.Visibility = 'Collapsed'; return }
+    $script:Update = $r
+    $ui.UpdateText.Text = "Version $($r.Version) is available"
+    $ui.UpdateCard.Visibility = 'Visible'
+}
+
+$ui.BtnUpdateNotes.Add_Click({ if ($script:Update.Page) { Start-Process $script:Update.Page } })
+$ui.BtnAppUpdate.Add_Click({
+    $u = $script:Update
+    # Started from an unzipped copy (no installed app) or no Setup attached:
+    # open the release page instead.
+    if (-not $u.Url -or -not (Test-Path -LiteralPath (Join-Path $ROOT_DIR 'WSL Control Panel.exe'))) {
+        Start-Process $(if ($u.Page) { $u.Page } else { "https://github.com/$RELEASES_REPO/releases/latest" }); return
+    }
+    Start-Task "Downloading version $($u.Version)" {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $file = Join-Path $env:TEMP 'WSL-Control-Panel-Setup.exe'
+        Write-TaskLog "Downloading $($A.Url)"
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $A.Url -OutFile $file -UseBasicParsing
+        Write-TaskLog 'Downloaded. Installing the update - the app closes and opens again by itself.'
+        $file
+    } @{ Url = $u.Url } {
+        param($file)
+        if (-not $file -or -not (Test-Path -LiteralPath $file)) { Show-Failure 'The update could not be downloaded' 'Check your internet connection and try again later.'; return }
+        Start-Process -FilePath $file -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', "/DIR=""$ROOT_DIR""", '/relaunch=1'
+        $win.Close()
+    }
+})
+
+# ------------------------------------------------------------------------------
 # First run: WSL itself not installed yet
 # ------------------------------------------------------------------------------
 function Show-FirstRun {
@@ -1309,12 +1384,17 @@ if ($Validate) {
     Update-DownloadForm; Update-BackupForm; Update-RestoreForm
     if ($ui.BtnDlOk.IsEnabled -or $ui.BtnBakOk.IsEnabled -or $ui.BtnResOk.IsEnabled) { throw 'A save button is on before a folder was chosen.' }
     $win.WindowState = 'Maximized'; Update-MaximizedMargin; $win.WindowState = 'Normal'
+    Show-UpdateCard @{ Version = '999.0.0'; Page = ''; Url = '' }
+    if ($ui.UpdateCard.Visibility -ne 'Visible') { throw 'The update card did not show.' }
+    Show-UpdateCard @{ Version = $PANEL_VERSION; Page = ''; Url = '' }
+    if ($ui.UpdateCard.Visibility -eq 'Visible') { throw 'The update card showed for the same version.' }
     "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found, Mica: $($script:Mica), title bar: $($script:Chrome), accent: $(Get-WindowsAccent), RAM: $([math]::Round($script:TotalRamGB, 1)) GB"
     exit 0
 }
 
 $win.Add_ContentRendered({
     $script:LiveTimer.Start()
+    Start-UpdateCheck
     Unblock-PanelFiles
     if ((Get-WslState) -ne 'Ready') { Show-FirstRun }
 })

@@ -1,0 +1,49 @@
+# When you publish a release on GitHub, this builds WSL-Control-Panel-Setup.exe
+# and attaches it to that release, so the README's "Download for Windows" link
+# (releases/latest/download/WSL-Control-Panel-Setup.exe) and the app's Update
+# button get it. The release tag must match the app version, e.g. v2.3.0 for
+# PANEL_VERSION = '2.3.0'.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    name: Attach the Setup
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches the app version
+        shell: powershell
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $text = Get-Content -LiteralPath powershell\WSL-Control-Panel.ps1 -Raw
+          [void]($text -match "PANEL_VERSION\s*=\s*'([^']+)'")
+          $version = $Matches[1]
+          if ($env:TAG.TrimStart('v') -ne $version) {
+            Write-Host "::error::The release tag '$env:TAG' does not match the app version $version. Name the release v$version."
+            exit 1
+          }
+          "Releasing $version"
+
+      - name: Build the Setup
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File installer\build-setup.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Attach it to the release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload $env:TAG build\WSL-Control-Panel-Setup.exe --clobber --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { exit 1 }
