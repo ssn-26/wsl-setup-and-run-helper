@@ -53,9 +53,10 @@ function Get-ShortcutPaths {
              (Join-Path ([Environment]::GetFolderPath('Desktop')) $SHORTCUT_NAME))
 }
 
-# Copies the program files from $src to $dest. The data folder (saved logins,
-# settings, logs) in $dest is never touched; a data folder found in $src (an
-# older unzipped copy) is brought along when $dest has none yet.
+# Copies the program files from $src to $dest. The data folder in $dest is
+# never touched. The saved logins and settings of an older unzipped copy
+# (data\config in $src) are brought along when $dest has none yet - never its
+# Linux disks or backups, which stay where they are.
 function Copy-PanelFiles([string]$src, [string]$dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     if ((Resolve-Path -LiteralPath $src).Path.TrimEnd('\') -eq (Resolve-Path -LiteralPath $dest).Path.TrimEnd('\')) { return }
@@ -68,10 +69,12 @@ function Copy-PanelFiles([string]$src, [string]$dest) {
         $p = Join-Path $src $f
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $dest $f) -Force }
     }
-    $oldData = Join-Path $src 'data'
-    if ((Test-Path -LiteralPath $oldData) -and -not (Test-Path -LiteralPath (Join-Path $dest 'data'))) {
+    $oldConfig = Join-Path $src 'data\config'
+    $newConfig = Join-Path $dest 'data\config'
+    if ((Test-Path -LiteralPath $oldConfig) -and -not (Test-Path -LiteralPath $newConfig)) {
         Write-Step 'Bringing along your saved logins and settings ...'
-        Copy-Item -LiteralPath $oldData -Destination (Join-Path $dest 'data') -Recurse -Force
+        New-Item -ItemType Directory -Force -Path (Join-Path $dest 'data') | Out-Null
+        Copy-Item -LiteralPath $oldConfig -Destination $newConfig -Recurse -Force
     }
 }
 
@@ -174,16 +177,29 @@ function Uninstall-Panel {
         foreach ($p in Get-ShortcutPaths) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
         Remove-Item -Path $UNINSTALL_KEY -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $dest) {
+            # The program files go. Of data\ only the saved logins, settings and
+            # logs may go, and only if you say so: Linux disks and backups that an
+            # older version kept in data\linux / data\backups are never deleted.
             $data = Join-Path $dest 'data'
-            $keepData = $true
-            if (Test-Path -LiteralPath $data) {
-                Write-Host ''
-                Write-Host "  Your saved logins and settings are in $data"
-                $keepData = ((Read-Host '  Delete them too? (y/N)') -notmatch '^[yY]')
-            }
-            Get-ChildItem -LiteralPath $dest -Force | Where-Object { -not ($keepData -and $_.Name -eq 'data') } |
+            Get-ChildItem -LiteralPath $dest -Force | Where-Object { $_.Name -ne 'data' } |
                 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-            if (-not $keepData -or -not (Test-Path -LiteralPath $data)) { Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath (Join-Path $data 'config')) {
+                Write-Host ''
+                Write-Host "  Your saved logins and settings are in $(Join-Path $data 'config')"
+                if ((Read-Host '  Delete them too? (y/N)') -match '^[yY]') {
+                    foreach ($d in 'config', 'logs') { Remove-Item -LiteralPath (Join-Path $data $d) -Recurse -Force -ErrorAction SilentlyContinue }
+                }
+            }
+            # Empty folders left by older versions can go.
+            Get-ChildItem -LiteralPath $data -Directory -Force -ErrorAction SilentlyContinue |
+                Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue) } |
+                Remove-Item -Force -ErrorAction SilentlyContinue
+            $left = @(Get-ChildItem -LiteralPath $data -Force -ErrorAction SilentlyContinue)
+            if ($left.Count) {
+                Write-Host "  Kept (not deleted): $(($left | ForEach-Object { $_.FullName }) -join ', ')"
+            } else {
+                Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
         Write-Host ''
         Write-Host '  WSL Control Panel is removed. Your WSL distros were not touched.' -ForegroundColor Green

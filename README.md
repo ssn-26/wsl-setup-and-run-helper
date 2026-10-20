@@ -51,7 +51,7 @@ My try to learn bash through a real-world working project.
 
 - **Left side:** your distros (running ones have a green dot), **Open default
   desktop**, **Download a distro**, and the tools: Back up, Restore, Close
-  running, Shut down all, Compact a disk, Memory / CPU, Data folders, Update WSL.
+  running, Shut down all, Compact a disk, Memory / CPU, Storage locations, Update WSL.
 - **Right side:** the distro you picked - **Open desktop**, **Terminal** and
   **Close**, "Open as" (which saved login to use), its saved accounts, its
   Remote Desktop port, systemd on/off, Compact disk, and Delete.
@@ -67,7 +67,7 @@ My try to learn bash through a real-world working project.
 | Restore | `wsl --import` brings a backup back, on this PC or a new one |
 | Compact | Hands unused `ext4.vhdx` space back to Windows (admin, via diskpart) |
 | Memory / CPU | Sets `memory`, `processors` and `swap` in `.wslconfig`; your other settings stay (a copy is kept as `.wslconfig.bak`) |
-| Data folders | Choose where new Linux disks and backups are saved |
+| Storage locations | Shows where every distro, your backups and the panel's settings are, each with an **Open** button |
 | Update WSL | `wsl --update` (admin) |
 
 Long jobs (downloads, desktop installs, backups) show their live output in a
@@ -132,7 +132,7 @@ itself, so there is no console window behind the app.
 1. [Install it](#install) and open **WSL Control Panel** from the Start menu.
    On a PC without WSL, allow the administrator prompt and restart if asked.
 2. **Download a distro**: pick one from the list (e.g. Ubuntu 24.04, Debian,
-   Arch Linux, Kali Linux) and keep the default folder.
+   Arch Linux, Kali Linux) and **choose the folder** to store it in (e.g. on a drive with plenty of space).
 3. **Create your login** right away: when the download finishes, the panel
    asks you to create your Linux user. Choose a username (it suggests your
    Windows name) and a password. The progress window shows each step while it
@@ -146,7 +146,7 @@ itself, so there is no console window behind the app.
 ## Moving to a new PC
 
 1. On the old PC: **Back up** the distro, then copy the `.tar` file (from
-   the `data\backups` folder or wherever you saved it) to a USB drive or cloud storage.
+   the folder you chose for it) to a USB drive or cloud storage.
 2. On the new PC: run the panel (it installs WSL if needed), then **Restore**.
    Pick the backup (or **Browse** for it). The distro comes back exactly as it
    was, with your normal user as the default login.
@@ -193,27 +193,19 @@ bash\                     the Linux-side scripts (install-desktop.sh, create-use
                           + xsession, the desktop session file both installers write
 powershell\               the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
                           it does), AppIcon.ps1 (the icon), ui\MainWindow.xaml (layout and colours)
-data\                     everything the panel creates (never committed to git)
+data\                     the panel's own files (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
-  backups\                backups made with Back up
-  linux\                  one folder per distro, holding its disk (ext4.vhdx)
   logs\                   the full output of each desktop install
 ```
 
-The `data` folders are created the first time they are needed. The Linux disks
-and the backups can be big, so you can move them with **Data folders** in
-the panel (for example to another drive). A change applies to new distros and new
-backups only. The settings and saved logins always stay in `data\config`, next to
-the panel.
-
-You can also edit `data\config\config.json` by hand:
-
-```json
-{ "WslBase": "E:\\Linux", "BackupBase": "E:\\Backups", "DefaultRdpPort": 3390 }
-```
-
-The whole folder is portable: copy it to a USB drive or another PC and it keeps
-working (saved passwords only decrypt on the same Windows login, though).
+**Your Linux disks and backups are never stored in the panel's folder.**
+Download, Back up and Restore always ask where to save (the folder picker
+opens where you chose last time), so they go where you decide - for example a
+drive with plenty of space - and updating or uninstalling the panel never
+touches them. Each distro's page shows where its disk is (**Open folder**), and
+**Storage locations** lists all of them, your last backup folder and the
+settings folder. Uninstalling only offers to delete the saved logins and
+settings.
 
 ---
 

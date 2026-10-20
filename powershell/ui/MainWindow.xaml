@@ -473,7 +473,7 @@
             <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;"/><TextBlock Text="Memory and processors" Margin="14,0,0,0"/></StackPanel>
           </Button>
           <Button x:Name="BtnFolders" Style="{StaticResource NavButton}">
-            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE8B7;"/><TextBlock Text="Data folders" Margin="14,0,0,0"/></StackPanel>
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE8B7;"/><TextBlock Text="Storage locations" Margin="14,0,0,0"/></StackPanel>
           </Button>
           <Button x:Name="BtnUpdate" Style="{StaticResource NavButton}">
             <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE895;"/><TextBlock Text="Update WSL" Margin="14,0,0,0"/></StackPanel>
@@ -631,10 +631,15 @@
                 <TextBlock Style="{StaticResource CardIcon}" Text="&#xEDA2;"/>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                   <TextBlock x:Name="StatDisk" Text="0 GB" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                  <Button x:Name="BtnOpenDiskFolder" Style="{StaticResource Btn}" Margin="0,0,8,0" ToolTip="Show the disk file in File Explorer">
+                    <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE838;" FontSize="14"/><TextBlock Text="Open folder" Margin="8,0,0,0"/></StackPanel>
+                  </Button>
                   <Button x:Name="BtnCompact" Style="{StaticResource Btn}" Content="Compact"/>
                 </StackPanel>
                 <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
                   <TextBlock Text="Disk"/>
+                  <TextBlock x:Name="DiskPath" FontSize="12" FontFamily="Cascadia Mono, Consolas" Foreground="{DynamicResource Text}"
+                             TextTrimming="CharacterEllipsis" Margin="0,2,0,2"/>
                   <TextBlock Style="{StaticResource MutedText}" Text="The disk grows but never shrinks by itself. Compacting gives unused space back to Windows."/>
                 </StackPanel>
               </DockPanel>
@@ -818,9 +823,9 @@
             </ListBox>
             <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
             <TextBox x:Name="DlName" FontFamily="Cascadia Mono, Consolas"/>
-            <TextBlock Text="Install in (a folder for it is created inside)" Style="{StaticResource FieldLabel}"/>
+            <TextBlock Text="Where to store it (a folder named after it is created inside)" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,6,0,0">
-              <Button x:Name="BtnDlFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" Margin="8,0,0,0"/>
+              <Button x:Name="BtnDlFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Choose folder" Margin="8,0,0,0"/>
               <TextBlock x:Name="DlFolder" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </DockPanel>
             <Border Style="{StaticResource DialogFooter}">
@@ -841,9 +846,9 @@
             <TextBlock Text="Format" Style="{StaticResource FieldLabel}"/>
             <RadioButton x:Name="BakTar" GroupName="fmt" IsChecked="True" Margin="0,8,0,3" Content=".tar - works on any PC with WSL"/>
             <RadioButton x:Name="BakVhdx" GroupName="fmt" Content=".vhdx - faster, an exact copy of the disk"/>
-            <TextBlock Text="Save in" Style="{StaticResource FieldLabel}"/>
+            <TextBlock Text="Where to save the backup" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,6,0,0">
-              <Button x:Name="BtnBakFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" Margin="8,0,0,0"/>
+              <Button x:Name="BtnBakFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Choose folder" Margin="8,0,0,0"/>
               <TextBlock x:Name="BakFolder" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </DockPanel>
             <Border Background="{DynamicResource WarnSoft}" CornerRadius="4" Padding="12,10" Margin="0,16,0,0">
@@ -872,9 +877,9 @@
             <TextBlock x:Name="ResFile" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0"/>
             <TextBlock Text="Name for the restored distro" Style="{StaticResource FieldLabel}"/>
             <TextBox x:Name="ResName" FontFamily="Cascadia Mono, Consolas"/>
-            <TextBlock Text="Install in" Style="{StaticResource FieldLabel}"/>
+            <TextBlock Text="Where to store it (a folder named after it is created inside)" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,6,0,0">
-              <Button x:Name="BtnResFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" Margin="8,0,0,0"/>
+              <Button x:Name="BtnResFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Choose folder" Margin="8,0,0,0"/>
               <TextBlock x:Name="ResFolder" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </DockPanel>
             <Border Style="{StaticResource DialogFooter}">
@@ -923,29 +928,48 @@
             </Border>
           </StackPanel>
 
-          <!-- Data folders -->
+          <!-- Storage locations: where everything is, with Open buttons -->
           <StackPanel x:Name="PanelFolders" Visibility="Collapsed">
-            <TextBlock Text="Data folders" Style="{StaticResource DialogTitle}"/>
-            <TextBlock x:Name="FolConfig" Style="{StaticResource MutedText}" Margin="0,8,0,16"/>
-            <Border Style="{StaticResource CardBox}" MinHeight="0">
+            <TextBlock Text="Storage locations" Style="{StaticResource DialogTitle}"/>
+            <TextBlock Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,12"
+                       Text="New distros, backups and restores always ask where to save. This is where everything is now."/>
+            <TextBlock Text="Distros" Style="{StaticResource FieldLabel}" Margin="0,4,0,6"/>
+            <TextBlock x:Name="FolNoDistros" Style="{StaticResource MutedText}" Text="No distros installed." Visibility="Collapsed"/>
+            <ScrollViewer MaxHeight="230" VerticalScrollBarVisibility="Auto">
+              <ItemsControl x:Name="FolDistros">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border Style="{StaticResource CardBox}" MinHeight="0" Padding="14,8">
+                      <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Open" Tag="{Binding Path}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        <StackPanel>
+                          <TextBlock Text="{Binding Name}"/>
+                          <TextBlock Text="{Binding Path}" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/>
+                        </StackPanel>
+                      </DockPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <TextBlock Text="Panel" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/>
+            <Border Style="{StaticResource CardBox}" MinHeight="0" Padding="14,8">
               <DockPanel>
-                <Button x:Name="BtnFolLinux" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                <StackPanel><TextBlock Text="Linux disks (new distros)"/>
-                  <TextBlock x:Name="FolLinux" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/></StackPanel>
-              </DockPanel>
-            </Border>
-            <Border Style="{StaticResource CardBox}" MinHeight="0">
-              <DockPanel>
-                <Button x:Name="BtnFolBackup" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                <StackPanel><TextBlock Text="Backups"/>
+                <Button x:Name="BtnFolBackup" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Open" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <StackPanel><TextBlock Text="Last backup folder"/>
                   <TextBlock x:Name="FolBackup" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/></StackPanel>
               </DockPanel>
             </Border>
-            <TextBlock Style="{StaticResource MutedText}" Margin="0,8,0,0"
-                       Text="Changes apply to new distros and new backups. Existing ones stay where they are."/>
+            <Border Style="{StaticResource CardBox}" MinHeight="0" Padding="14,8">
+              <DockPanel>
+                <Button x:Name="BtnFolConfig" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Open" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <StackPanel><TextBlock Text="Settings and saved logins"/>
+                  <TextBlock x:Name="FolConfig" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="Always next to the panel: the encrypted passwords belong to this Windows login."/></StackPanel>
+              </DockPanel>
+            </Border>
             <Border Style="{StaticResource DialogFooter}">
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="BtnFolDefaults" Style="{StaticResource Btn}" Content="Use default folders" Margin="0,0,8,0"/>
                 <Button x:Name="BtnFolClose" Style="{StaticResource Primary}" Content="Done" MinWidth="96"/>
               </StackPanel>
             </Border>

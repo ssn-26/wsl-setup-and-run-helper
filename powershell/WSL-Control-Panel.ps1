@@ -337,6 +337,14 @@ function Show-Failure([string]$title, [string]$text) {
     Show-Message $title $text @(@{ Text = 'OK' })
 }
 
+# Shows a file (selected) or a folder in File Explorer.
+function Open-InExplorer([string]$path) {
+    if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) { Start-Process explorer.exe -ArgumentList "/select,""$path""" }
+    elseif ($path -and (Test-Path -LiteralPath $path)) { Start-Process explorer.exe -ArgumentList """$path""" }
+    else { Show-Toast "That folder does not exist (any more): $path" 'Warn' }
+}
+$NO_FOLDER = 'No folder chosen yet'
+
 # Windows' folder / file pickers. $null when cancelled.
 function Select-Folder([string]$description, [string]$start) {
     $d = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -497,7 +505,11 @@ function Show-DistroPage {
     $ui.StateDot.SetResourceReference([Windows.Shapes.Shape]::FillProperty, $(if ($running) { 'Ok' } else { 'Muted' }))
     $ui.HeroMeta.Text = "WSL $($d.Version)" + $(if ($d.IsDefault) { " $MIDDOT default distro" } else { '' })
     $ui.BtnClose.Visibility = $(if ($running) { 'Visible' } else { 'Collapsed' })
-    $ui.StatDisk.Text = ('{0:N1} GB' -f [double](Get-DistroVhdInfo $d.Name).SizeGB)
+    $vhd = Get-DistroVhdInfo $d.Name
+    $ui.StatDisk.Text = ('{0:N1} GB' -f [double]$vhd.SizeGB)
+    $script:DiskFile = $(if ($vhd.Exists) { $vhd.VhdxPath } else { $vhd.BasePath })
+    $ui.DiskPath.Text = $(if ($vhd.BasePath) { $vhd.BasePath } else { 'Location not found' })
+    $ui.DiskPath.ToolTip = $ui.DiskPath.Text
     $port = Get-DistroPort $d.Name
     $ui.StatPort.Text = [string]$port
     $ui.PortBox.Text = [string]$port
@@ -914,6 +926,7 @@ $ui.BtnSystemd.Add_Click({
     }
 })
 $ui.BtnCompact.Add_Click({ Show-CompactDialog (Get-CurrentDistro).Name })
+$ui.BtnOpenDiskFolder.Add_Click({ Open-InExplorer $script:DiskFile })
 $ui.BtnDelete.Add_Click({
     $d = (Get-CurrentDistro).Name
     $script:DelDistro = $d
@@ -972,20 +985,27 @@ $ui.BtnDownload.Add_Click({
         param($r)
         $ui.OnlineList.ItemsSource = @($r.Rows)
         $ui.DlName.Text = ''
-        $script:DlBase = $Global:Config.WslBase
-        $ui.DlFolder.Text = $script:DlBase
-        $ui.BtnDlOk.IsEnabled = $false
+        $script:DlBase = ''
+        Update-DownloadForm
         Open-Panel 'PanelDownload' 580
     }
 })
+# The folder is never filled in for you: Download stays off until you choose one.
+function Update-DownloadForm {
+    $name = $ui.DlName.Text.Trim()
+    $ui.DlFolder.Text = $(if (-not $script:DlBase) { $NO_FOLDER } elseif ($name) { Join-Path $script:DlBase $name } else { $script:DlBase })
+    $ui.BtnDlOk.IsEnabled = [bool]((Test-DistroName $name) -and $script:DlBase)
+}
 $ui.OnlineList.Add_SelectionChanged({ if ($ui.OnlineList.SelectedItem) { $ui.DlName.Text = $ui.OnlineList.SelectedItem.Name } })
-$ui.DlName.Add_TextChanged({ $ui.BtnDlOk.IsEnabled = (Test-DistroName $ui.DlName.Text.Trim()) })
+$ui.DlName.Add_TextChanged({ Update-DownloadForm })
 $ui.BtnDlFolder.Add_Click({
-    $f = Select-Folder 'Where should the new distro be installed? (its own sub-folder is created inside)' $script:DlBase
-    if ($f) { $script:DlBase = $f; $ui.DlFolder.Text = $f }
+    $f = Select-Folder 'Where should the new distro be stored? (a folder named after it is created inside)' $Global:Config.WslBase
+    if ($f) { $script:DlBase = $f; Update-DownloadForm }
 })
 $ui.BtnDlCancel.Add_Click({ Close-Dialog })
 $ui.BtnDlOk.Add_Click({
+    $problem = Set-DataFolder 'WslBase' $script:DlBase   # remembered as the picker's start next time
+    if ($problem) { Show-Toast $problem 'Error'; return }
     $script:Dl = @{ Name = $ui.DlName.Text.Trim(); Base = $script:DlBase }
     Start-Task "Downloading $($script:Dl.Name)" { Install-WslDistro $A.Name $A.Base } $script:Dl.Clone() {
         param($r)
@@ -1024,16 +1044,21 @@ $ui.BtnBackup.Add_Click({
     $ui.BakList.ItemsSource = @($script:Distros | ForEach-Object { $_.Name })
     $cur = Get-CurrentDistro
     if ($cur) { $ui.BakList.SelectedItem = $cur.Name }
-    $script:BakDir = $Global:Config.BackupBase
-    $ui.BakFolder.Text = $script:BakDir
+    $script:BakDir = ''
     $ui.BakTar.IsChecked = $true
-    $ui.BtnBakOk.IsEnabled = ($null -ne $ui.BakList.SelectedItem)
+    Update-BackupForm
     Open-Panel 'PanelBackup' 560
 })
-$ui.BakList.Add_SelectionChanged({ $ui.BtnBakOk.IsEnabled = ($null -ne $ui.BakList.SelectedItem) })
-$ui.BtnBakFolder.Add_Click({ $f = Select-Folder 'Where should the backup be saved?' $script:BakDir; if ($f) { $script:BakDir = $f; $ui.BakFolder.Text = $f } })
+function Update-BackupForm {
+    $ui.BakFolder.Text = $(if ($script:BakDir) { $script:BakDir } else { $NO_FOLDER })
+    $ui.BtnBakOk.IsEnabled = [bool](($null -ne $ui.BakList.SelectedItem) -and $script:BakDir)
+}
+$ui.BakList.Add_SelectionChanged({ Update-BackupForm })
+$ui.BtnBakFolder.Add_Click({ $f = Select-Folder 'Where should the backup be saved?' $Global:Config.BackupBase; if ($f) { $script:BakDir = $f; Update-BackupForm } })
 $ui.BtnBakCancel.Add_Click({ Close-Dialog })
 $ui.BtnBakOk.Add_Click({
+    $problem = Set-DataFolder 'BackupBase' $script:BakDir   # Restore lists the backups found there
+    if ($problem) { Show-Toast $problem 'Error'; return }
     $A = @{ Name = [string]$ui.BakList.SelectedItem; Dir = $script:BakDir; Ext = $(if ($ui.BakVhdx.IsChecked) { 'vhdx' } else { 'tar' }) }
     Start-Task "Backing up $($A.Name)" { Export-WslDistro $A.Name $A.Dir $A.Ext } $A {
         param($r)
@@ -1048,20 +1073,27 @@ $ui.BtnBakOk.Add_Click({
     }
 })
 
-$script:ResFiles = @(); $script:ResPick = $null; $script:ResLocAuto = $true
+$script:ResFiles = @(); $script:ResPick = $null; $script:ResBase = ''
 $ui.BtnRestore.Add_Click({
     $script:ResFiles = @(Get-BackupFiles)
-    $ui.ResHint.Text = $(if ($script:ResFiles.Count) { "Backups found in $($Global:Config.BackupBase) (newest first):" } else { "No backups in $($Global:Config.BackupBase) - browse for a file instead." })
+    $ui.ResHint.Text = $(if ($script:ResFiles.Count) { "Backups in $($Global:Config.BackupBase) (the folder of your last backup), newest first:" }
+                         else { 'Browse for the backup file (.tar or .vhdx) to restore.' })
     $ui.ResList.ItemsSource = @($script:ResFiles | ForEach-Object { '{0}   ({1} GB)' -f $_.Name, [math]::Round($_.Length / 1GB, 2) })
-    $script:ResPick = $null; $script:ResLocAuto = $true
-    $ui.ResFile.Text = ''; $ui.ResName.Text = ''; $ui.ResFolder.Text = ''
-    $ui.BtnResOk.IsEnabled = $false
+    $script:ResPick = $null; $script:ResBase = ''
+    $ui.ResFile.Text = ''; $ui.ResName.Text = ''
+    Update-RestoreForm
     Open-Panel 'PanelRestore' 600
 })
+function Update-RestoreForm {
+    $name = $ui.ResName.Text.Trim()
+    $ui.ResFolder.Text = $(if (-not $script:ResBase) { $NO_FOLDER } elseif ($name) { Join-Path $script:ResBase $name } else { $script:ResBase })
+    $ui.BtnResOk.IsEnabled = [bool]($script:ResPick -and $name -and $script:ResBase)
+}
 function Set-RestoreFile([string]$path) {
     $script:ResPick = $path
     $ui.ResFile.Text = $path
     $ui.ResName.Text = Get-BackupDistroName $path
+    Update-RestoreForm
 }
 $ui.ResList.Add_SelectionChanged({ if ($ui.ResList.SelectedIndex -ge 0) { Set-RestoreFile $script:ResFiles[$ui.ResList.SelectedIndex].FullName } })
 $ui.BtnResBrowse.Add_Click({
@@ -1070,18 +1102,16 @@ $ui.BtnResBrowse.Add_Click({
     $d.Title = 'Pick a backup to restore'
     if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $ui.ResList.SelectedIndex = -1; Set-RestoreFile $d.FileName }
 })
-$ui.ResName.Add_TextChanged({
-    if ($script:ResLocAuto -and $ui.ResName.Text) { $ui.ResFolder.Text = Join-Path $Global:Config.WslBase $ui.ResName.Text.Trim() }
-    $ui.BtnResOk.IsEnabled = [bool]($script:ResPick -and $ui.ResName.Text.Trim())
-})
+$ui.ResName.Add_TextChanged({ Update-RestoreForm })
 $ui.BtnResFolder.Add_Click({
-    $f = Select-Folder 'Where should the restored distro be installed?' $Global:Config.WslBase
-    if ($f) { $script:ResLocAuto = $false; $ui.ResFolder.Text = $f }
+    $f = Select-Folder 'Where should the restored distro be stored? (a folder named after it is created inside)' $Global:Config.WslBase
+    if ($f) { $script:ResBase = $f; Update-RestoreForm }
 })
 $ui.BtnResCancel.Add_Click({ Close-Dialog })
 $ui.BtnResOk.Add_Click({
-    $A = @{ File = $script:ResPick; Name = $ui.ResName.Text.Trim(); Loc = $ui.ResFolder.Text }
+    $A = @{ File = $script:ResPick; Name = $ui.ResName.Text.Trim(); Loc = (Join-Path $script:ResBase $ui.ResName.Text.Trim()) }
     $problem = Get-RestoreProblem $A.File $A.Name $A.Loc
+    if (-not $problem) { $problem = Set-DataFolder 'WslBase' $script:ResBase }
     if ($problem) { Show-Toast $problem 'Error'; return }
     $script:SelectNext = $A.Name
     Start-Task "Restoring $($A.Name)" { Import-WslDistro $A.File $A.Name $A.Loc } $A {
@@ -1153,25 +1183,26 @@ $ui.BtnLimCustom.Add_Click({
 $ui.BtnLimReset.Add_Click({ Set-Limits $null $null $null })
 $ui.BtnLimClose.Add_Click({ Close-Dialog })
 
-# Data folders
+# Storage locations: where every distro, the last backups and the settings are
 function Show-FoldersPanel {
-    $ui.FolConfig.Text = "Settings + saved logins: $CONFIG_FOLDER (always next to the panel - the encrypted passwords belong to this Windows login)"
-    $ui.FolLinux.Text = $Global:Config.WslBase
-    $ui.FolBackup.Text = $Global:Config.BackupBase
+    $rows = @(foreach ($d in $script:Distros) {
+        $vhd = Get-DistroVhdInfo $d.Name
+        [pscustomobject]@{ Name = '{0}   ({1:N1} GB)' -f $d.Name, [double]$vhd.SizeGB; Path = $(if ($vhd.BasePath) { $vhd.BasePath } else { 'Location not found' }) }
+    })
+    $ui.FolDistros.ItemsSource = $rows
+    $ui.FolNoDistros.Visibility = $(if ($rows.Count) { 'Collapsed' } else { 'Visible' })
+    $ui.FolBackup.Text = $(if ($Global:Config.BackupBase) { $Global:Config.BackupBase } else { 'No backup made yet' })
+    $ui.BtnFolBackup.IsEnabled = [bool]$Global:Config.BackupBase
+    $ui.FolConfig.Text = $CONFIG_FOLDER
     Open-Panel 'PanelFolders' 640
 }
-function Set-Folder([string]$which, [string]$what) {
-    $f = Select-Folder "Where should $what be saved?" $Global:Config.$which
-    if (-not $f) { return }
-    $problem = Set-DataFolder $which $f
-    if ($problem) { Show-Toast $problem 'Error'; return }
-    Show-FoldersPanel
-    Show-Toast 'Saved.'
-}
 $ui.BtnFolders.Add_Click({ Show-FoldersPanel })
-$ui.BtnFolLinux.Add_Click({ Set-Folder 'WslBase' 'new Linux disks' })
-$ui.BtnFolBackup.Add_Click({ Set-Folder 'BackupBase' 'new backups' })
-$ui.BtnFolDefaults.Add_Click({ Reset-DataFolders; Show-FoldersPanel; Show-Toast 'Back to the default folders.' })
+$ui.FolDistros.AddHandler([Windows.Controls.Button]::ClickEvent, [Windows.RoutedEventHandler]{
+    param($s, $e)
+    Open-InExplorer ([string]$e.OriginalSource.Tag)
+})
+$ui.BtnFolBackup.Add_Click({ Open-InExplorer $Global:Config.BackupBase })
+$ui.BtnFolConfig.Add_Click({ Open-InExplorer $CONFIG_FOLDER })
 $ui.BtnFolClose.Add_Click({ Close-Dialog })
 
 $ui.BtnUpdate.Add_Click({
@@ -1275,6 +1306,8 @@ if ($Validate) {
     $script:Motion = $false; Start-PageEntrance; Close-Dialog
     foreach ($k in $DefaultButtons.Keys) { if (-not $ui[$DefaultButtons[$k]]) { throw "No main button for $k" } }
     Update-LiveStatus; [void](Get-WslMemoryLimitGB)
+    Update-DownloadForm; Update-BackupForm; Update-RestoreForm
+    if ($ui.BtnDlOk.IsEnabled -or $ui.BtnBakOk.IsEnabled -or $ui.BtnResOk.IsEnabled) { throw 'A save button is on before a folder was chosen.' }
     $win.WindowState = 'Maximized'; Update-MaximizedMargin; $win.WindowState = 'Normal'
     "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found, Mica: $($script:Mica), title bar: $($script:Chrome), accent: $(Get-WindowsAccent), RAM: $([math]::Round($script:TotalRamGB, 1)) GB"
     exit 0
