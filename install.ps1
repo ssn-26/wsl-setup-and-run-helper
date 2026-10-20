@@ -53,21 +53,22 @@ function Get-ShortcutPaths {
              (Join-Path ([Environment]::GetFolderPath('Desktop')) $SHORTCUT_NAME))
 }
 
-# Copies the program files from $src to $dest. The data folder in $dest is
-# never touched. The saved logins and settings of an older unzipped copy
+# Copies what the app needs from $src to $dest - powershell\, bash\ and this
+# installer (kept for updates and -Uninstall) - and removes files older
+# versions put there. The data folder in $dest is never touched. The saved logins and settings of an older unzipped copy
 # (data\config in $src) are brought along when $dest has none yet - never its
 # Linux disks or backups, which stay where they are.
 function Copy-PanelFiles([string]$src, [string]$dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     if ((Resolve-Path -LiteralPath $src).Path.TrimEnd('\') -eq (Resolve-Path -LiteralPath $dest).Path.TrimEnd('\')) { return }
-    foreach ($d in 'powershell', 'bash', 'launcher') {
+    foreach ($d in 'powershell', 'bash') {
         $target = Join-Path $dest $d
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
         Copy-Item -LiteralPath (Join-Path $src $d) -Destination $target -Recurse -Force
     }
-    foreach ($f in 'WSL-Control-Panel.bat', 'Install.bat', 'install.ps1', 'README.md', 'LICENSE') {
-        $p = Join-Path $src $f
-        if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination (Join-Path $dest $f) -Force }
+    Copy-Item -LiteralPath (Join-Path $src 'install.ps1') -Destination (Join-Path $dest 'install.ps1') -Force
+    foreach ($old in 'launcher', 'WSL-Control-Panel.bat', 'Install.bat', 'README.md', 'LICENSE') {
+        Remove-Item -LiteralPath (Join-Path $dest $old) -Recurse -Force -ErrorAction SilentlyContinue
     }
     $oldConfig = Join-Path $src 'data\config'
     $newConfig = Join-Path $dest 'data\config'
@@ -78,12 +79,15 @@ function Copy-PanelFiles([string]$src, [string]$dest) {
     }
 }
 
-# Builds "WSL Control Panel.exe" (launcher\build.ps1). Always in Windows
+# Builds "WSL Control Panel.exe" into $dest from the source in $src
+# (launcher\build.ps1; the source itself is not installed). Always in Windows
 # PowerShell 5.1, even when this runs in PowerShell 7: the launcher hosts the
 # PowerShell that comes with Windows.
-function Build-Launcher([string]$dest) {
+function Build-Launcher([string]$src, [string]$dest) {
+    $build = Join-Path $src 'launcher\build.ps1'
+    if (-not (Test-Path -LiteralPath $build)) { throw 'The launcher source is missing - install with the one-line command instead.' }
     $ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $out = & $ps51 -NoProfile -ExecutionPolicy Bypass -STA -File (Join-Path $dest 'launcher\build.ps1') -Dest $dest
+    $out = & $ps51 -NoProfile -ExecutionPolicy Bypass -STA -File $build -Source $src -Dest $dest
     $exe = Join-Path $dest $EXE_NAME
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) {
         throw "Building $EXE_NAME failed. $($out -join "`n")"
@@ -146,7 +150,7 @@ function Install-Panel {
         Get-ChildItem -LiteralPath $dest -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
 
         Write-Step "Building $EXE_NAME ..."
-        $exe = Build-Launcher $dest
+        $exe = Build-Launcher $src $dest
 
         if (-not $NoShortcuts) {
             Write-Step 'Adding it to the Start menu and the desktop ...'

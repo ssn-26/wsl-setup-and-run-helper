@@ -16,3 +16,11 @@ bash/** text eol=lf
 # Config and account data files stay LF.
 *.json text eol=lf
 *.acct text eol=lf
+
+# GitHub-only files: left out of "Download ZIP" (and of what install.ps1
+# downloads), so people get only what the app needs.
+.gitattributes export-ignore
+.gitignore export-ignore
+.github/ export-ignore
+README.md export-ignore
+LICENSE export-ignore

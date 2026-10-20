@@ -179,16 +179,12 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 
 ## Folder layout
 
-Installed, it lives in `%LOCALAPPDATA%\Programs\WSL Control Panel`:
+Installed, only what the app needs goes on your PC, in
+`%LOCALAPPDATA%\Programs\WSL Control Panel`:
 
 ```
 WSL Control Panel.exe     <- the app (built on your PC by install.ps1)
-WSL-Control-Panel.bat     runs the panel without installing (from an unzipped copy)
-Install.bat               double-click to install from an unzipped copy
-install.ps1               install / update / -Uninstall
-README.md
-LICENSE                   MIT licence
-launcher\                 Launcher.cs (the exe's source), build.ps1, app.ico
+install.ps1               kept for updates and uninstalling
 bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
                           + xsession, the desktop session file both installers write
 powershell\               the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
@@ -197,6 +193,11 @@ data\                     the panel's own files (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
   logs\                   the full output of each desktop install
 ```
+
+The repository also has `launcher\` (the exe's source and `build.ps1`, used
+while installing), `Install.bat` and `WSL-Control-Panel.bat` (for an unzipped
+copy). This README, the licence and the git/CI files stay on GitHub: they are
+left out of "Download ZIP" too (`export-ignore` in `.gitattributes`).
 
 **Your Linux disks and backups are never stored in the panel's folder.**
 Download, Back up and Restore always ask where to save (the folder picker
