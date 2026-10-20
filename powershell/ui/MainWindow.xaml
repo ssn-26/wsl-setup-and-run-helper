@@ -1,91 +1,164 @@
-<!-- WSL Control Panel - the window. Colours are brushes in Window.Resources and
-     every control uses them through DynamicResource, so the panel can switch the
-     whole window between dark and light. Every x:Name is reachable from
-     WSL-Control-Panel.ps1 as $ui.<Name>. -->
+<!-- WSL Control Panel - the window, in the style of a Windows 11 app (like
+     Settings): Fluent controls, Segoe Fluent Icons, the user's Windows accent
+     colour and Mica behind the navigation pane.
+     Colours are brushes in Window.Resources; every control uses them through
+     DynamicResource, and WSL-Control-Panel.ps1 fills them for light or dark.
+     Icons are glyphs of Segoe Fluent Icons (Windows 11) with Segoe MDL2 Assets
+     (Windows 10) as fallback, written as &#x....; so this file stays ASCII.
+     Every x:Name is reachable from the script as $ui.<Name>. -->
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="WSL Control Panel" Width="1220" Height="800" MinWidth="980" MinHeight="640"
-        WindowStartupLocation="CenterScreen" UseLayoutRounding="True"
-        Background="{DynamicResource Bg}" Foreground="{DynamicResource Text}"
-        FontFamily="Segoe UI" FontSize="13.5">
+        Title="WSL Control Panel" Width="1180" Height="800" MinWidth="960" MinHeight="640"
+        WindowStartupLocation="CenterScreen" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Background="{DynamicResource WindowBg}" Foreground="{DynamicResource Text}"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14"
+        TextOptions.TextFormattingMode="Display">
   <Window.Resources>
-    <SolidColorBrush x:Key="Bg" Color="#0F1115"/>
-    <SolidColorBrush x:Key="Sidebar" Color="#14171D"/>
-    <SolidColorBrush x:Key="Card" Color="#1A1E26"/>
-    <SolidColorBrush x:Key="Raised" Color="#232935"/>
-    <SolidColorBrush x:Key="Line" Color="#2A303C"/>
-    <SolidColorBrush x:Key="Text" Color="#E8EAEF"/>
-    <SolidColorBrush x:Key="Muted" Color="#8B93A3"/>
-    <SolidColorBrush x:Key="Accent" Color="#4FB6FF"/>
-    <SolidColorBrush x:Key="AccentInk" Color="#04121F"/>
-    <SolidColorBrush x:Key="AccentSoft" Color="#1E3448"/>
-    <SolidColorBrush x:Key="Ok" Color="#3CCF91"/>
-    <SolidColorBrush x:Key="OkSoft" Color="#173A2E"/>
-    <SolidColorBrush x:Key="Warn" Color="#F5B84A"/>
-    <SolidColorBrush x:Key="Danger" Color="#FF6B6B"/>
-    <SolidColorBrush x:Key="DangerSoft" Color="#3A1F24"/>
-    <SolidColorBrush x:Key="LogBg" Color="#0A0C10"/>
+    <!-- Theme brushes (values are set by the script) -->
+    <SolidColorBrush x:Key="WindowBg" Color="#202020"/>
+    <SolidColorBrush x:Key="Sidebar" Color="Transparent"/>
+    <SolidColorBrush x:Key="LayerFill" Color="#4C3A3A3A"/>
+    <SolidColorBrush x:Key="Card" Color="#0DFFFFFF"/>
+    <SolidColorBrush x:Key="Line" Color="#19000000"/>
+    <SolidColorBrush x:Key="ControlFill" Color="#0FFFFFFF"/>
+    <SolidColorBrush x:Key="ControlHover" Color="#15FFFFFF"/>
+    <SolidColorBrush x:Key="ControlPressed" Color="#08FFFFFF"/>
+    <SolidColorBrush x:Key="ControlStroke" Color="#12FFFFFF"/>
+    <SolidColorBrush x:Key="InputActive" Color="#B31E1E1E"/>
+    <SolidColorBrush x:Key="SubtleHover" Color="#0FFFFFFF"/>
+    <SolidColorBrush x:Key="SubtleSelected" Color="#0BFFFFFF"/>
+    <SolidColorBrush x:Key="Raised" Color="#0FFFFFFF"/>
+    <SolidColorBrush x:Key="Text" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Muted" Color="#C5FFFFFF"/>
+    <SolidColorBrush x:Key="Tertiary" Color="#87FFFFFF"/>
+    <SolidColorBrush x:Key="Accent" Color="#4CC2FF"/>
+    <SolidColorBrush x:Key="AccentHover" Color="#47B1E8"/>
+    <SolidColorBrush x:Key="AccentInk" Color="#000000"/>
+    <SolidColorBrush x:Key="AccentSoft" Color="#334CC2FF"/>
+    <SolidColorBrush x:Key="Ok" Color="#6CCB5F"/>
+    <SolidColorBrush x:Key="OkSoft" Color="#393D1B"/>
+    <SolidColorBrush x:Key="Warn" Color="#FCE100"/>
+    <SolidColorBrush x:Key="WarnSoft" Color="#433519"/>
+    <SolidColorBrush x:Key="Danger" Color="#FF99A4"/>
+    <SolidColorBrush x:Key="DangerSoft" Color="#442726"/>
+    <SolidColorBrush x:Key="DangerFill" Color="#C42B1C"/>
+    <SolidColorBrush x:Key="Smoke" Color="#4D000000"/>
+    <SolidColorBrush x:Key="DialogBg" Color="#2B2B2B"/>
+    <SolidColorBrush x:Key="DialogFooter" Color="#202020"/>
+    <SolidColorBrush x:Key="LogBg" Color="#0C0C0C"/>
 
-    <!-- Buttons -->
+    <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+    <Style x:Key="Icon" TargetType="TextBlock">
+      <Setter Property="FontFamily" Value="{StaticResource IconFont}"/>
+      <Setter Property="FontSize" Value="16"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- Standard button -->
     <Style x:Key="Btn" TargetType="Button">
-      <Setter Property="Background" Value="{DynamicResource Card}"/>
+      <Setter Property="Background" Value="{DynamicResource ControlFill}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlStroke}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="14,8"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Padding" Value="12,5"/>
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="FontSize" Value="14"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.82"/></Trigger>
-              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.65"/></Trigger>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource ControlHover}"/></Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{DynamicResource ControlPressed}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="b" Property="Opacity" Value="0.45"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="Small" TargetType="Button" BasedOn="{StaticResource Btn}"/>
+    <!-- Accent button: the one main action of a page or dialog -->
+    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource Btn}">
+      <Setter Property="Background" Value="{DynamicResource Accent}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource AccentHover}"/></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.8"/></Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter TargetName="b" Property="Opacity" Value="0.4"/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
-    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource Btn}">
-      <Setter Property="Background" Value="{DynamicResource Accent}"/>
-      <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
-    </Style>
-    <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource Btn}">
-      <Setter Property="Background" Value="{DynamicResource Danger}"/>
+    <!-- Destructive action (delete) -->
+    <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource Primary}">
+      <Setter Property="Background" Value="{DynamicResource DangerFill}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource DangerFill}"/>
       <Setter Property="Foreground" Value="White"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Danger}"/>
     </Style>
-    <Style x:Key="Small" TargetType="Button" BasedOn="{StaticResource Btn}">
-      <Setter Property="Padding" Value="10,5"/>
-      <Setter Property="FontSize" Value="12.5"/>
+    <!-- A navigation-pane row that is a button (Download, the tools) -->
+    <Style x:Key="NavButton" TargetType="Button">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="Transparent" CornerRadius="4" Padding="12,0" Height="36" Margin="0,1">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource SubtleHover}"/></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource SubtleSelected}"/></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="b" Property="Opacity" Value="0.45"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
 
-    <!-- Text inputs -->
+    <!-- Text inputs: Fluent box with the accent line under it when focused -->
     <Style x:Key="Input" TargetType="Control">
-      <Setter Property="Background" Value="{DynamicResource Bg}"/>
+      <Setter Property="Background" Value="{DynamicResource ControlFill}"/>
       <Setter Property="Foreground" Value="{DynamicResource Text}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ControlStroke}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="9,7"/>
+      <Setter Property="Padding" Value="10,6"/>
       <Setter Property="Margin" Value="0,6,0,4"/>
+      <Setter Property="MinHeight" Value="32"/>
     </Style>
     <Style TargetType="TextBox" BasedOn="{StaticResource Input}">
       <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
+      <Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="TextBox">
-            <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
-              <ScrollViewer x:Name="PART_ContentHost"/>
-            </Border>
+            <Grid>
+              <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                <ScrollViewer x:Name="PART_ContentHost"/>
+              </Border>
+              <Border x:Name="line" Height="2" VerticalAlignment="Bottom" CornerRadius="0,0,4,4" Margin="1,0"
+                      Background="{DynamicResource Accent}" Visibility="Collapsed"/>
+            </Grid>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{DynamicResource InputActive}"/>
+                <Setter TargetName="line" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsReadOnly" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.7"/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
@@ -93,37 +166,45 @@
     </Style>
     <Style TargetType="PasswordBox" BasedOn="{StaticResource Input}">
       <Setter Property="CaretBrush" Value="{DynamicResource Text}"/>
+      <Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="PasswordBox">
-            <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
-              <ScrollViewer x:Name="PART_ContentHost"/>
-            </Border>
+            <Grid>
+              <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                <ScrollViewer x:Name="PART_ContentHost"/>
+              </Border>
+              <Border x:Name="line" Height="2" VerticalAlignment="Bottom" CornerRadius="0,0,4,4" Margin="1,0"
+                      Background="{DynamicResource Accent}" Visibility="Collapsed"/>
+            </Grid>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{DynamicResource InputActive}"/>
+                <Setter TargetName="line" Property="Visibility" Value="Visible"/>
+              </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
 
-    <!-- On/off switch -->
+    <!-- Fluent toggle switch -->
     <Style x:Key="Switch" TargetType="CheckBox">
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="CheckBox">
-            <Border x:Name="track" Width="40" Height="22" CornerRadius="11" Background="{DynamicResource Raised}"
-                    BorderBrush="{DynamicResource Line}" BorderThickness="1">
-              <Ellipse x:Name="knob" Width="16" Height="16" Margin="2,0" HorizontalAlignment="Left" Fill="{DynamicResource Muted}"/>
+            <Border x:Name="track" Width="40" Height="20" CornerRadius="10" Background="Transparent"
+                    BorderBrush="{DynamicResource Muted}" BorderThickness="1">
+              <Ellipse x:Name="knob" Width="12" Height="12" Margin="4,0" HorizontalAlignment="Left" Fill="{DynamicResource Muted}"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsChecked" Value="True">
                 <Setter TargetName="track" Property="Background" Value="{DynamicResource Accent}"/>
                 <Setter TargetName="track" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                 <Setter TargetName="knob" Property="HorizontalAlignment" Value="Right"/>
-                <Setter TargetName="knob" Property="Fill" Value="White"/>
+                <Setter TargetName="knob" Property="Fill" Value="{DynamicResource AccentInk}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -131,61 +212,92 @@
       </Setter>
     </Style>
 
-    <!-- Progress bar -->
+    <!-- Radio buttons (backup format) -->
+    <Style TargetType="RadioButton">
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,3"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <StackPanel Orientation="Horizontal" Background="Transparent">
+              <Grid Width="20" Height="20" VerticalAlignment="Center">
+                <Ellipse x:Name="ring" Stroke="{DynamicResource Muted}" StrokeThickness="1" Fill="{DynamicResource ControlFill}"/>
+                <Ellipse x:Name="dot" Width="8" Height="8" Fill="{DynamicResource AccentInk}" Visibility="Collapsed"/>
+              </Grid>
+              <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="ring" Property="Fill" Value="{DynamicResource Accent}"/>
+                <Setter TargetName="ring" Property="Stroke" Value="{DynamicResource Accent}"/>
+                <Setter TargetName="dot" Property="Visibility" Value="Visible"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Thin Fluent progress bar -->
     <Style TargetType="ProgressBar">
-      <Setter Property="Height" Value="8"/>
+      <Setter Property="Height" Value="3"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ProgressBar">
             <Grid>
-              <Border x:Name="PART_Track" CornerRadius="4" Background="{DynamicResource Raised}"/>
-              <Border x:Name="PART_Indicator" CornerRadius="4" HorizontalAlignment="Left">
-                <Border.Background>
-                  <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                    <GradientStop Color="#4FB6FF" Offset="0"/>
-                    <GradientStop Color="#7C5CFF" Offset="1"/>
-                  </LinearGradientBrush>
-                </Border.Background>
-              </Border>
+              <Border x:Name="PART_Track" Height="1" VerticalAlignment="Center" Background="{DynamicResource Muted}" Opacity="0.4"/>
+              <Border x:Name="PART_Indicator" CornerRadius="1.5" HorizontalAlignment="Left" Background="{DynamicResource Accent}"/>
             </Grid>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
 
-    <!-- Rows of the distro list in the sidebar -->
+    <!-- Navigation-pane rows (the distro list): accent pill when selected -->
     <Style x:Key="NavItem" TargetType="ListBoxItem">
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ListBoxItem">
-            <Border x:Name="b" CornerRadius="10" Padding="8,7" Margin="0,2" Background="Transparent">
-              <ContentPresenter/>
-            </Border>
+            <Grid Margin="0,1">
+              <Border x:Name="b" CornerRadius="4" Padding="12,0" MinHeight="36" Background="Transparent">
+                <ContentPresenter VerticalAlignment="Center"/>
+              </Border>
+              <Border x:Name="pill" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left"
+                      Background="{DynamicResource Accent}" Visibility="Collapsed"/>
+            </Grid>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource Raised}"/></Trigger>
-              <Trigger Property="IsSelected" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource AccentSoft}"/></Trigger>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource SubtleHover}"/></Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{DynamicResource SubtleSelected}"/>
+                <Setter TargetName="pill" Property="Visibility" Value="Visible"/>
+              </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
+    <!-- Rows of the lists inside dialogs: same look, roomier -->
+    <Style x:Key="ListRow" TargetType="ListBoxItem" BasedOn="{StaticResource NavItem}"/>
 
-    <!-- "Open as" choices: small pills in a row -->
+    <!-- "Open as" choices: segmented-style pills -->
     <Style x:Key="Chip" TargetType="ListBoxItem">
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ListBoxItem">
-            <Border x:Name="b" CornerRadius="14" Padding="12,5" Margin="0,0,8,6" Background="{DynamicResource Card}"
-                    BorderBrush="{DynamicResource Line}" BorderThickness="1">
+            <Border x:Name="b" CornerRadius="4" Padding="12,5" Margin="0,0,6,0" Background="{DynamicResource ControlFill}"
+                    BorderBrush="{DynamicResource ControlStroke}" BorderThickness="1">
               <ContentPresenter/>
             </Border>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource Raised}"/></Trigger>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource ControlHover}"/></Trigger>
               <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="b" Property="Background" Value="{DynamicResource AccentSoft}"/>
+                <Setter TargetName="b" Property="Background" Value="{DynamicResource Accent}"/>
                 <Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                <Setter Property="Foreground" Value="{DynamicResource AccentInk}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -193,461 +305,573 @@
       </Setter>
     </Style>
 
+    <!-- Settings-style card: icon - title + description - control -->
     <Style x:Key="CardBox" TargetType="Border">
       <Setter Property="Background" Value="{DynamicResource Card}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="12"/>
-      <Setter Property="Padding" Value="16"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="16,12"/>
+      <Setter Property="Margin" Value="0,0,0,4"/>
+      <Setter Property="MinHeight" Value="64"/>
+    </Style>
+    <Style x:Key="CardIcon" TargetType="TextBlock" BasedOn="{StaticResource Icon}">
+      <Setter Property="FontSize" Value="20"/>
+      <Setter Property="Margin" Value="0,0,16,0"/>
+      <Setter Property="DockPanel.Dock" Value="Left"/>
     </Style>
     <Style x:Key="MutedText" TargetType="TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
-      <Setter Property="FontSize" Value="12.5"/>
+      <Setter Property="FontSize" Value="12"/>
       <Setter Property="TextWrapping" Value="Wrap"/>
     </Style>
     <Style x:Key="H2" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="FontSize" Value="14"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Margin" Value="0,22,0,10"/>
+      <Setter Property="Margin" Value="0,24,0,8"/>
+    </Style>
+    <Style x:Key="NavHeader" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+      <Setter Property="Margin" Value="12,16,0,4"/>
+    </Style>
+    <Style x:Key="DialogTitle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="20"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="FontFamily" Value="Segoe UI Variable Display, Segoe UI"/>
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+      <Setter Property="Margin" Value="0,12,0,0"/>
+    </Style>
+    <!-- The grey button band at the bottom of every dialog -->
+    <Style x:Key="DialogFooter" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource DialogFooter}"/>
+      <Setter Property="Margin" Value="-24,24,-24,-24"/>
+      <Setter Property="Padding" Value="24"/>
+      <Setter Property="CornerRadius" Value="0,0,8,8"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
+      <Setter Property="BorderThickness" Value="0,1,0,0"/>
     </Style>
   </Window.Resources>
+
   <Grid>
     <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="290"/>
+      <ColumnDefinition Width="300"/>
       <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
 
-    <!-- ============================ Sidebar ============================ -->
-    <Border Background="{DynamicResource Sidebar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
-      <DockPanel Margin="14,18">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,0,18">
-          <Border Width="36" Height="36" CornerRadius="10">
-            <Border.Background>
-              <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#4FB6FF" Offset="0"/>
-                <GradientStop Color="#7C5CFF" Offset="1"/>
-              </LinearGradientBrush>
-            </Border.Background>
-            <TextBlock Text="&gt;_" Foreground="White" FontFamily="Consolas" FontWeight="Bold" FontSize="15"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          </Border>
-          <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
-            <TextBlock Text="WSL Control Panel" FontWeight="SemiBold"/>
-            <TextBlock x:Name="VersionText" Text="v2.0.0" Style="{StaticResource MutedText}"/>
-          </StackPanel>
+    <!-- ======================= Navigation pane (over Mica) ======================= -->
+    <DockPanel Background="{DynamicResource Sidebar}">
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,14,16,6">
+        <Image x:Name="AppIcon" Width="20" Height="20" VerticalAlignment="Center"/>
+        <TextBlock Text="WSL Control Panel" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center"/>
+        <TextBlock x:Name="VersionText" Text="v2.1.0" FontSize="12" Foreground="{DynamicResource Tertiary}"
+                   Margin="8,0,0,0" VerticalAlignment="Center"/>
+      </StackPanel>
+
+      <Button x:Name="BtnQuickOpen" DockPanel.Dock="Top" Style="{StaticResource Primary}" Margin="12,10,12,4"
+              HorizontalAlignment="Stretch" ToolTip="Opens the desktop of your default distro with its first saved account">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Style="{StaticResource Icon}" Text="&#xE7F4;"/>
+          <TextBlock Text="Open default desktop" Margin="8,0,0,0"/>
         </StackPanel>
+      </Button>
 
-        <Button x:Name="BtnQuickOpen" DockPanel.Dock="Top" Style="{StaticResource Primary}" Content="Open default desktop"
-                Margin="0,0,0,16" ToolTip="Opens the desktop of your default distro with its first saved account"/>
-
-        <TextBlock DockPanel.Dock="Top" Text="YOUR DISTROS" Foreground="{DynamicResource Muted}" FontSize="11"
-                   FontWeight="SemiBold" Margin="8,0,0,6"/>
-
-        <!-- bottom part of the sidebar -->
-        <StackPanel DockPanel.Dock="Bottom">
-          <Button x:Name="BtnDownload" Style="{StaticResource Primary}" Content="+  Download a distro" Margin="0,10,0,12"/>
-          <TextBlock Text="TOOLS" Foreground="{DynamicResource Muted}" FontSize="11" FontWeight="SemiBold" Margin="8,0,0,6"/>
-          <UniformGrid Columns="2">
-            <Button x:Name="BtnBackup"   Style="{StaticResource Small}" Content="Back up"          Margin="0,0,4,6"/>
-            <Button x:Name="BtnRestore"  Style="{StaticResource Small}" Content="Restore"          Margin="4,0,0,6"/>
-            <Button x:Name="BtnCloseRun" Style="{StaticResource Small}" Content="Close running"    Margin="0,0,4,6"/>
-            <Button x:Name="BtnShutdown" Style="{StaticResource Small}" Content="Shut down all"    Margin="4,0,0,6"/>
-            <Button x:Name="BtnCompactAny" Style="{StaticResource Small}" Content="Compact a disk" Margin="0,0,4,6"/>
-            <Button x:Name="BtnLimits"   Style="{StaticResource Small}" Content="Memory / CPU"     Margin="4,0,0,6"/>
-            <Button x:Name="BtnFolders"  Style="{StaticResource Small}" Content="Data folders"     Margin="0,0,4,6"/>
-            <Button x:Name="BtnUpdate"   Style="{StaticResource Small}" Content="Update WSL"       Margin="4,0,0,6"/>
-          </UniformGrid>
-          <Button x:Name="BtnTheme" Style="{StaticResource Small}" Content="Switch to light theme" Margin="0,4,0,0"/>
-        </StackPanel>
-
-        <TextBlock x:Name="HiddenNote" DockPanel.Dock="Bottom" Style="{StaticResource MutedText}" Margin="8,6,8,0" Visibility="Collapsed"/>
-
-        <Grid>
-          <TextBlock x:Name="NoDistros" Style="{StaticResource MutedText}" Margin="8,4" Visibility="Collapsed"
-                     Text="None yet - use Download a distro below to get your first one."/>
-          <ListBox x:Name="DistroList" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource NavItem}"
-                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" Foreground="{DynamicResource Text}">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="4,0">
+        <StackPanel Margin="0,0,0,12">
+          <TextBlock Text="Distros" Style="{StaticResource NavHeader}"/>
+          <TextBlock x:Name="NoDistros" Style="{StaticResource MutedText}" Margin="12,4" Visibility="Collapsed"
+                     Text="None yet. Download one below."/>
+          <ListBox x:Name="DistroList" Background="Transparent" BorderThickness="0" Padding="0"
+                   ItemContainerStyle="{StaticResource NavItem}" Foreground="{DynamicResource Text}"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
               <DataTemplate>
-                <Grid>
+                <Grid Margin="0,6">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                   </Grid.ColumnDefinitions>
-                  <Border Width="34" Height="34" CornerRadius="9" Background="{DynamicResource Raised}">
-                    <TextBlock Text="{Binding Initial}" Foreground="{DynamicResource Text}" FontWeight="Bold" FontSize="14"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                  </Border>
-                  <StackPanel Grid.Column="1" Margin="10,0,6,0" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Muted}" FontSize="12"/>
+                  <TextBlock Style="{StaticResource Icon}" Text="&#xE756;"/>
+                  <StackPanel Grid.Column="1" Margin="14,0,8,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis"/>
                   </StackPanel>
-                  <Ellipse Grid.Column="2" Width="9" Height="9" Fill="{Binding Dot}" VerticalAlignment="Center"/>
+                  <Ellipse Grid.Column="2" Width="8" Height="8" Fill="{Binding Dot}" VerticalAlignment="Center"/>
                 </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
-        </Grid>
-      </DockPanel>
-    </Border>
-
-    <!-- ============================ Distro page ============================ -->
-    <TextBlock x:Name="EmptyPage" Grid.Column="1" Style="{StaticResource MutedText}" FontSize="15" TextAlignment="Center"
-               HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"
-               Text="Pick a distro on the left, or download your first one."/>
-    <ScrollViewer x:Name="DistroPage" Grid.Column="1" VerticalScrollBarVisibility="Auto">
-      <StackPanel Margin="36,30,36,40" MaxWidth="1000">
-        <Grid>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-          </Grid.ColumnDefinitions>
-          <Border Width="64" Height="64" CornerRadius="16" Background="{DynamicResource Raised}">
-            <TextBlock x:Name="HeroInitial" Text="U" Foreground="{DynamicResource Text}" FontWeight="Bold" FontSize="26"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          </Border>
-          <StackPanel Grid.Column="1" Margin="18,0,12,0" VerticalAlignment="Center">
-            <TextBlock x:Name="HeroName" Text="Ubuntu" FontSize="24" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-              <Border x:Name="StatePill" CornerRadius="10" Padding="9,2" Background="{DynamicResource Raised}">
-                <StackPanel Orientation="Horizontal">
-                  <Ellipse x:Name="StateDot" Width="7" Height="7" Fill="{DynamicResource Muted}" VerticalAlignment="Center"/>
-                  <TextBlock x:Name="StateText" Text="Stopped" Foreground="{DynamicResource Muted}" FontSize="12"
-                             FontWeight="SemiBold" Margin="6,0,0,0"/>
-                </StackPanel>
-              </Border>
-              <TextBlock x:Name="HeroMeta" Text="WSL 2 - default" Foreground="{DynamicResource Muted}" FontSize="12" Margin="10,2,0,0"/>
+          <TextBlock x:Name="HiddenNote" Style="{StaticResource MutedText}" Margin="12,4,12,0" Visibility="Collapsed"/>
+          <Button x:Name="BtnDownload" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource Icon}" Text="&#xE710;"/>
+              <TextBlock Text="Download a distro" Margin="14,0,0,0"/>
             </StackPanel>
-          </StackPanel>
-          <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-            <Button x:Name="BtnClose" Style="{StaticResource Btn}" Content="Close" Margin="0,0,10,0"
-                    ToolTip="wsl --terminate: stops this distro and frees its RAM"/>
-            <Button x:Name="BtnTerminal" Style="{StaticResource Btn}" Content="Terminal" Margin="0,0,10,0"/>
-            <Button x:Name="BtnDesktop" Style="{StaticResource Primary}" Content="Open desktop"/>
-          </StackPanel>
-        </Grid>
+          </Button>
 
-        <!-- which saved login to open with -->
-        <StackPanel x:Name="OpenAsRow" Orientation="Horizontal" Margin="82,14,0,0">
-          <TextBlock Text="Open as" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-          <ListBox x:Name="OpenAsList" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource Chip}"
-                   Foreground="{DynamicResource Text}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-            <ListBox.ItemsPanel>
-              <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
-            </ListBox.ItemsPanel>
-          </ListBox>
+          <TextBlock Text="Tools" Style="{StaticResource NavHeader}"/>
+          <Button x:Name="BtnBackup" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE7B8;"/><TextBlock Text="Back up" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnRestore" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE777;"/><TextBlock Text="Restore a backup" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnCloseRun" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE71A;"/><TextBlock Text="Close a running distro" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnShutdown" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE7E8;"/><TextBlock Text="Shut down WSL" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnCompactAny" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xEDA2;"/><TextBlock Text="Compact a disk" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnLimits" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;"/><TextBlock Text="Memory and processors" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnFolders" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE8B7;"/><TextBlock Text="Data folders" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnUpdate" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE895;"/><TextBlock Text="Update WSL" Margin="14,0,0,0"/></StackPanel>
+          </Button>
+          <Button x:Name="BtnTheme" Style="{StaticResource NavButton}">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE706;"/><TextBlock x:Name="ThemeText" Text="Light theme" Margin="14,0,0,0"/></StackPanel>
+          </Button>
         </StackPanel>
+      </ScrollViewer>
+    </DockPanel>
 
-        <UniformGrid Columns="2" Margin="0,20,0,0">
-          <Border Style="{StaticResource CardBox}" Margin="0,0,6,0" Padding="14,12">
-            <StackPanel><TextBlock Text="Disk size" Style="{StaticResource MutedText}"/>
-              <TextBlock x:Name="StatDisk" Text="0 GB" FontSize="16" FontWeight="SemiBold"/></StackPanel>
-          </Border>
-          <Border Style="{StaticResource CardBox}" Margin="6,0,0,0" Padding="14,12">
-            <StackPanel><TextBlock Text="Remote Desktop (xrdp) port" Style="{StaticResource MutedText}"/>
-              <TextBlock x:Name="StatPort" Text="3390" FontSize="16" FontWeight="SemiBold"/></StackPanel>
-          </Border>
-        </UniformGrid>
+    <!-- ======================= Content pane ======================= -->
+    <Border Grid.Column="1" Background="{DynamicResource LayerFill}" BorderBrush="{DynamicResource Line}"
+            BorderThickness="1,1,0,0" CornerRadius="8,0,0,0">
+      <Grid>
+        <TextBlock x:Name="EmptyPage" Style="{StaticResource MutedText}" FontSize="14" TextAlignment="Center"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"
+                   Text="Pick a distro on the left, or download your first one."/>
+        <ScrollViewer x:Name="DistroPage" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="40,28,40,40" MaxWidth="1000">
+            <!-- Header card -->
+            <Border Style="{StaticResource CardBox}" Padding="20">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="56" Height="56" CornerRadius="8" Background="{DynamicResource AccentSoft}">
+                  <Grid>
+                    <TextBlock Style="{StaticResource Icon}" Text="&#xE756;" FontSize="26" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="HeroInitial" Visibility="Collapsed"/>
+                  </Grid>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="16,0,12,0" VerticalAlignment="Center">
+                  <TextBlock x:Name="HeroName" Text="Ubuntu" FontSize="28" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                             FontFamily="Segoe UI Variable Display, Segoe UI"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <Border x:Name="StatePill" CornerRadius="4" Padding="8,2" Background="{DynamicResource Raised}">
+                      <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="StateDot" Width="6" Height="6" Fill="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StateText" Text="Stopped" Foreground="{DynamicResource Muted}" FontSize="12" Margin="6,0,0,0"/>
+                      </StackPanel>
+                    </Border>
+                    <TextBlock x:Name="HeroMeta" Text="WSL 2" Foreground="{DynamicResource Muted}" FontSize="12" Margin="10,2,0,0"/>
+                  </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button x:Name="BtnClose" Style="{StaticResource Btn}" Margin="0,0,8,0" ToolTip="wsl --terminate: stops this distro and frees its memory">
+                    <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE71A;" FontSize="14"/><TextBlock Text="Stop" Margin="8,0,0,0"/></StackPanel>
+                  </Button>
+                  <Button x:Name="BtnTerminal" Style="{StaticResource Btn}" Margin="0,0,8,0">
+                    <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE756;" FontSize="14"/><TextBlock Text="Terminal" Margin="8,0,0,0"/></StackPanel>
+                  </Button>
+                  <Button x:Name="BtnDesktop" Style="{StaticResource Primary}">
+                    <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE7F4;" FontSize="14"/><TextBlock Text="Open desktop" Margin="8,0,0,0"/></StackPanel>
+                  </Button>
+                </StackPanel>
+              </Grid>
+            </Border>
 
-        <!-- Accounts -->
-        <DockPanel>
-          <Button x:Name="BtnAddUser" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="+  Add an account"
-                  VerticalAlignment="Bottom" Margin="0,0,0,10"/>
-          <TextBlock Text="Saved accounts (used for auto-login)" Style="{StaticResource H2}"/>
-        </DockPanel>
-        <Border Style="{StaticResource CardBox}" Padding="6">
-          <StackPanel>
-            <TextBlock x:Name="NoUsers" Margin="10" Style="{StaticResource MutedText}" Visibility="Collapsed"
-                       Text="None saved yet. On a fresh distro, opening the desktop offers to create your user."/>
+            <!-- Open as -->
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel x:Name="OpenAsRow">
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE77B;"/>
+                <ListBox x:Name="OpenAsList" DockPanel.Dock="Right" Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                         ItemContainerStyle="{StaticResource Chip}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                  <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                  </ListBox.ItemsPanel>
+                </ListBox>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Open as"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="The saved login that Open desktop and Terminal use"/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+
+            <!-- Accounts -->
+            <TextBlock Text="Accounts" Style="{StaticResource H2}"/>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE8D7;"/>
+                <Button x:Name="BtnAddUser" DockPanel.Dock="Right" Style="{StaticResource Btn}" VerticalAlignment="Center">
+                  <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE710;" FontSize="12"/><TextBlock Text="Add account" Margin="8,0,0,0"/></StackPanel>
+                </Button>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Saved logins"/>
+                  <TextBlock x:Name="NoUsers" Style="{StaticResource MutedText}" Visibility="Collapsed"
+                             Text="None yet. On a fresh distro, Open desktop offers to create your user."/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="Used to sign in automatically. Passwords are encrypted with Windows DPAPI."/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
             <ItemsControl x:Name="AccountList">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Grid Margin="10,8">
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="Auto"/>
-                      <ColumnDefinition Width="*"/>
-                      <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <Border Width="34" Height="34" CornerRadius="17" Background="{DynamicResource AccentSoft}">
-                      <TextBlock Text="{Binding Initial}" Foreground="{DynamicResource Accent}" FontWeight="Bold"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                      <TextBlock Text="Password saved here, encrypted with Windows DPAPI" Foreground="{DynamicResource Muted}" FontSize="12"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal">
-                      <Button Style="{StaticResource Small}" Content="Change password" Tag="{Binding Name}" Margin="0,0,8,0"/>
-                      <Button Style="{StaticResource Small}" Content="Remove" Tag="{Binding Name}"/>
-                    </StackPanel>
-                  </Grid>
+                  <Border Style="{StaticResource CardBox}" MinHeight="56" Padding="16,8" Margin="0,0,0,4">
+                    <DockPanel>
+                      <Border Width="32" Height="32" CornerRadius="16" Background="{DynamicResource AccentSoft}" Margin="0,0,16,0" DockPanel.Dock="Left">
+                        <TextBlock Text="{Binding Initial}" Foreground="{DynamicResource Accent}" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                      </Border>
+                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource Btn}" Content="Change password" Tag="{Binding Name}" Margin="0,0,8,0"/>
+                        <Button Style="{StaticResource Btn}" Content="Remove" Tag="{Binding Name}"/>
+                      </StackPanel>
+                      <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                    </DockPanel>
+                  </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-          </StackPanel>
-        </Border>
 
-        <!-- Settings -->
-        <TextBlock Text="Settings" Style="{StaticResource H2}"/>
-        <Border Style="{StaticResource CardBox}">
-          <StackPanel>
-            <DockPanel>
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBox x:Name="PortBox" Width="90" Text="3390" Margin="0"/>
-                <Button x:Name="BtnPortSave" Style="{StaticResource Small}" Content="Save" Margin="8,0,0,0"/>
-              </StackPanel>
-              <StackPanel Margin="0,0,16,0"><TextBlock Text="Remote Desktop port" FontWeight="SemiBold"/>
-                <TextBlock Style="{StaticResource MutedText}" Text="1024-65535. Each distro can have its own, so two desktops can be open at once. Used the next time you open the desktop."/></StackPanel>
-            </DockPanel>
-            <Separator Margin="0,12" Background="{DynamicResource Line}"/>
-            <DockPanel>
-              <Button x:Name="BtnSystemd" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="Turn on / off..." VerticalAlignment="Center"/>
-              <StackPanel Margin="0,0,16,0"><TextBlock Text="systemd" FontWeight="SemiBold"/>
-                <TextBlock Style="{StaticResource MutedText}" Text="The standard Linux service manager: with it on, services (Docker, SSH, cron, databases) start properly. Set in /etc/wsl.conf."/></StackPanel>
-            </DockPanel>
-            <Separator Margin="0,12" Background="{DynamicResource Line}"/>
-            <DockPanel>
-              <Button x:Name="BtnCompact" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="Compact..." VerticalAlignment="Center"/>
-              <StackPanel Margin="0,0,16,0"><TextBlock Text="Compact disk" FontWeight="SemiBold"/>
-                <TextBlock Style="{StaticResource MutedText}" Text="Gives unused ext4.vhdx space back to Windows."/></StackPanel>
-            </DockPanel>
-          </StackPanel>
-        </Border>
+            <!-- Storage and network -->
+            <TextBlock Text="Storage and network" Style="{StaticResource H2}"/>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xEDA2;"/>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                  <TextBlock x:Name="StatDisk" Text="0 GB" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                  <Button x:Name="BtnCompact" Style="{StaticResource Btn}" Content="Compact"/>
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Disk"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="The disk grows but never shrinks by itself. Compacting gives unused space back to Windows."/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE774;"/>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                  <TextBlock x:Name="StatPort" Visibility="Collapsed"/>
+                  <TextBox x:Name="PortBox" Width="96" Text="3390" Margin="0"/>
+                  <Button x:Name="BtnPortSave" Style="{StaticResource Btn}" Content="Save" Margin="8,0,0,0"/>
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Remote Desktop port"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="1024 to 65535. Give each distro its own port to keep two desktops open at once."/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
 
-        <!-- Danger zone -->
-        <TextBlock Text="Danger zone" Style="{StaticResource H2}"/>
-        <Border Style="{StaticResource CardBox}" BorderBrush="{DynamicResource Danger}">
+            <!-- System -->
+            <TextBlock Text="System" Style="{StaticResource H2}"/>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE713;"/>
+                <Button x:Name="BtnSystemd" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="systemd"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="The Linux service manager. Turn it on for Docker, SSH, cron and databases."/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE74D;" Foreground="{DynamicResource Danger}"/>
+                <Button x:Name="BtnDelete" DockPanel.Dock="Right" Style="{StaticResource Btn}" VerticalAlignment="Center">
+                  <TextBlock Text="Delete" Foreground="{DynamicResource Danger}"/>
+                </Button>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Delete this distro"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="Erases it and every file inside. This can't be undone, so back it up first."/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+
+        <!-- InfoBar: quick results -->
+        <Border x:Name="Toast" Visibility="Collapsed" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="1000"
+                Margin="40,16,40,0" Background="{DynamicResource OkSoft}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                CornerRadius="4" Padding="14,10">
           <DockPanel>
-            <Button x:Name="BtnDelete" DockPanel.Dock="Right" Style="{StaticResource DangerBtn}" Content="Delete..." VerticalAlignment="Center"/>
-            <StackPanel Margin="0,0,16,0"><TextBlock Text="Delete this distro" FontWeight="SemiBold"/>
-              <TextBlock Style="{StaticResource MutedText}" Text="&quot;wsl --unregister&quot;: ERASES it and every file inside (permanent!). Back it up first if you might need it."/></StackPanel>
+            <Grid DockPanel.Dock="Left" Width="16" Height="16" Margin="0,2,12,0" VerticalAlignment="Top">
+              <Ellipse x:Name="ToastIconBg" Fill="{DynamicResource Ok}"/>
+              <TextBlock x:Name="ToastIcon" Style="{StaticResource Icon}" FontSize="10" Text="&#xE73E;"
+                         Foreground="{DynamicResource AccentInk}" HorizontalAlignment="Center"/>
+            </Grid>
+            <Button x:Name="ToastClose" DockPanel.Dock="Right" Style="{StaticResource NavButton}" VerticalAlignment="Top" Margin="8,-6,-8,-6" ToolTip="Close">
+              <TextBlock Style="{StaticResource Icon}" FontSize="12" Text="&#xE711;"/>
+            </Button>
+            <TextBlock x:Name="ToastText" Text="" TextWrapping="Wrap" VerticalAlignment="Center"/>
           </DockPanel>
         </Border>
-      </StackPanel>
-    </ScrollViewer>
+      </Grid>
+    </Border>
 
-    <!-- ============================ Dialog overlay ============================ -->
-    <Grid x:Name="Overlay" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#A6050810">
-      <Border x:Name="DialogCard" Background="{DynamicResource Card}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-              CornerRadius="16" Padding="24" Width="520" VerticalAlignment="Center" HorizontalAlignment="Center">
+    <!-- ======================= Dialogs (ContentDialog style) ======================= -->
+    <Grid x:Name="Overlay" Grid.ColumnSpan="2" Visibility="Collapsed" Background="{DynamicResource Smoke}">
+      <Border x:Name="DialogCard" Background="{DynamicResource DialogBg}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+              CornerRadius="8" Padding="24" Width="520" VerticalAlignment="Center" HorizontalAlignment="Center">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="32" ShadowDepth="8" Opacity="0.35" Direction="270"/>
+        </Border.Effect>
         <Grid>
           <!-- Message / question with up to three buttons -->
           <StackPanel x:Name="PanelMessage" Visibility="Collapsed">
-            <TextBlock x:Name="MsgTitle" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
-            <ScrollViewer MaxHeight="380" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-              <TextBlock x:Name="MsgText" TextWrapping="Wrap" FontSize="13.5" LineHeight="20"/>
+            <TextBlock x:Name="MsgTitle" Style="{StaticResource DialogTitle}"/>
+            <ScrollViewer MaxHeight="380" VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
+              <TextBlock x:Name="MsgText" TextWrapping="Wrap" LineHeight="20"/>
             </ScrollViewer>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-              <Button x:Name="MsgB3" Style="{StaticResource Btn}" Margin="0,0,10,0"/>
-              <Button x:Name="MsgB2" Style="{StaticResource Btn}" Margin="0,0,10,0"/>
-              <Button x:Name="MsgB1" Style="{StaticResource Primary}"/>
-            </StackPanel>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="MsgB3" Style="{StaticResource Btn}" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="MsgB2" Style="{StaticResource Btn}" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="MsgB1" Style="{StaticResource Primary}" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- Username + password (first user, add account, re-create, change password) -->
           <StackPanel x:Name="PanelUser" Visibility="Collapsed">
-            <TextBlock x:Name="UserTitle" Text="Create your Linux user" FontSize="18" FontWeight="SemiBold"/>
-            <TextBlock x:Name="UserIntro" Style="{StaticResource MutedText}" FontSize="13" Margin="0,6,0,14"/>
-            <TextBlock Text="Linux username" FontWeight="SemiBold"/>
+            <TextBlock x:Name="UserTitle" Text="Create your Linux user" Style="{StaticResource DialogTitle}"/>
+            <TextBlock x:Name="UserIntro" Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,4"/>
+            <TextBlock Text="Linux username" Style="{StaticResource FieldLabel}"/>
             <TextBox x:Name="UName"/>
             <TextBlock x:Name="UHint" Style="{StaticResource MutedText}" Text="Lowercase letters, digits, - and _, starting with a letter"/>
-            <DockPanel x:Name="CreateRow" Margin="0,12,0,0">
+            <DockPanel x:Name="CreateRow" Margin="0,16,0,0">
               <CheckBox x:Name="CreateSwitch" DockPanel.Dock="Right" Style="{StaticResource Switch}" VerticalAlignment="Center" IsChecked="True"/>
-              <StackPanel Margin="0,0,16,0"><TextBlock Text="Also create this user inside the distro" FontWeight="SemiBold"/>
-                <TextBlock Style="{StaticResource MutedText}" Text="On: fresh distro / new user - makes the Linux user with admin (sudo) rights and the desktop session. Off: the Linux user already exists; only remember the login here."/></StackPanel>
+              <StackPanel Margin="0,0,16,0"><TextBlock Text="Also create this user in the distro"/>
+                <TextBlock Style="{StaticResource MutedText}" Text="On for a new user: makes the Linux user with admin (sudo) rights and the desktop session. Off if the user already exists, to only remember the login."/></StackPanel>
             </DockPanel>
-            <TextBlock x:Name="P1Label" Text="Password" FontWeight="SemiBold" Margin="0,12,0,0"/>
+            <TextBlock x:Name="P1Label" Text="Password" Style="{StaticResource FieldLabel}"/>
             <PasswordBox x:Name="P1"/>
-            <TextBlock Text="Confirm password" FontWeight="SemiBold" Margin="0,8,0,0"/>
+            <TextBlock Text="Confirm password" Style="{StaticResource FieldLabel}"/>
             <PasswordBox x:Name="P2"/>
             <TextBlock x:Name="PHint" Style="{StaticResource MutedText}" Text=" "/>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="BtnUserCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,10,0"/>
-              <Button x:Name="BtnUserOk" Style="{StaticResource Primary}" Content="Create user" IsEnabled="False"/>
-            </StackPanel>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnUserCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="BtnUserOk" Style="{StaticResource Primary}" Content="Create user" IsEnabled="False" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- Long task with live output -->
           <StackPanel x:Name="PanelTask" Visibility="Collapsed">
-            <TextBlock x:Name="TaskTitle" Text="Working" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
-            <DockPanel Margin="0,10,0,6">
+            <TextBlock x:Name="TaskTitle" Text="Working" Style="{StaticResource DialogTitle}"/>
+            <DockPanel Margin="0,12,0,8">
               <TextBlock x:Name="TaskTime" DockPanel.Dock="Right" Text="0:00" Style="{StaticResource MutedText}" Margin="12,0,0,0"/>
               <TextBlock x:Name="TaskStep" Text="Starting..." Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
             </DockPanel>
             <ProgressBar x:Name="TaskBar" Maximum="100" Value="0"/>
-            <TextBox x:Name="TaskLog" Height="220" Margin="0,12,0,0" IsReadOnly="True" FontFamily="Consolas" FontSize="12.5"
-                     Background="{DynamicResource LogBg}" Foreground="#B7C0CF" BorderThickness="0" TextWrapping="Wrap"
-                     VerticalScrollBarVisibility="Auto"/>
+            <TextBox x:Name="TaskLog" Height="220" Margin="0,16,0,0" IsReadOnly="True" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                     Background="{DynamicResource LogBg}" Foreground="#CCCCCC" BorderThickness="0" TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto" Padding="10,8"/>
           </StackPanel>
 
           <!-- Delete confirmation -->
           <StackPanel x:Name="PanelDelete" Visibility="Collapsed">
-            <TextBlock x:Name="DelTitle" Text="Delete?" FontSize="18" FontWeight="SemiBold"/>
-            <Border Background="{DynamicResource DangerSoft}" CornerRadius="10" Padding="12,10" Margin="0,12,0,14">
-              <TextBlock Foreground="{DynamicResource Danger}" TextWrapping="Wrap" FontSize="13"
-                         Text="WARNING: this permanently erases the distro and ALL of its files. It cannot be undone."/>
+            <TextBlock x:Name="DelTitle" Text="Delete?" Style="{StaticResource DialogTitle}"/>
+            <Border Background="{DynamicResource DangerSoft}" CornerRadius="4" Padding="12,10" Margin="0,12,0,4">
+              <DockPanel>
+                <TextBlock Style="{StaticResource Icon}" Text="&#xEA39;" Foreground="{DynamicResource Danger}" Margin="0,0,10,0" VerticalAlignment="Top"/>
+                <TextBlock TextWrapping="Wrap" Text="This permanently erases the distro and all of its files. It can't be undone."/>
+              </DockPanel>
             </Border>
-            <TextBlock x:Name="DelLabel" FontWeight="SemiBold" Text="Type the distro name exactly to confirm"/>
-            <TextBox x:Name="DelName" FontFamily="Consolas"/>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="BtnDelCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,10,0"/>
-              <Button x:Name="BtnDelOk" Style="{StaticResource DangerBtn}" Content="Delete forever" IsEnabled="False"/>
-            </StackPanel>
+            <TextBlock x:Name="DelLabel" Text="Type the distro name to confirm" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="DelName" FontFamily="Cascadia Mono, Consolas"/>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnDelCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="BtnDelOk" Style="{StaticResource DangerBtn}" Content="Delete" IsEnabled="False" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- Pick one from a list (close a running distro, compact a disk) -->
           <StackPanel x:Name="PanelPick" Visibility="Collapsed">
-            <TextBlock x:Name="PickTitle" FontSize="18" FontWeight="SemiBold"/>
-            <TextBlock x:Name="PickText" Style="{StaticResource MutedText}" FontSize="13" Margin="0,6,0,12"/>
+            <TextBlock x:Name="PickTitle" Style="{StaticResource DialogTitle}"/>
+            <TextBlock x:Name="PickText" Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,12"/>
             <ListBox x:Name="PickList" MaxHeight="260" Background="Transparent" BorderThickness="0"
-                     ItemContainerStyle="{StaticResource NavItem}" Foreground="{DynamicResource Text}"/>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="PickB3" Style="{StaticResource Btn}" Margin="0,0,10,0"/>
-              <Button x:Name="PickB2" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,10,0"/>
-              <Button x:Name="PickB1" Style="{StaticResource Primary}" IsEnabled="False"/>
-            </StackPanel>
+                     ItemContainerStyle="{StaticResource ListRow}" Foreground="{DynamicResource Text}"/>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="PickB3" Style="{StaticResource Btn}" Margin="0,0,8,0"/>
+                <Button x:Name="PickB2" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="PickB1" Style="{StaticResource Primary}" IsEnabled="False" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- Download a new distro -->
           <StackPanel x:Name="PanelDownload" Visibility="Collapsed">
-            <TextBlock Text="Download a NEW distro" FontSize="18" FontWeight="SemiBold"/>
-            <TextBlock Style="{StaticResource MutedText}" FontSize="13" Margin="0,6,0,12"
-                       Text="Pick one from Microsoft's official list (wsl --install), or type its name."/>
+            <TextBlock Text="Download a distro" Style="{StaticResource DialogTitle}"/>
+            <TextBlock Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,12"
+                       Text="Choose one from Microsoft's official list, or type its name."/>
             <ListBox x:Name="OnlineList" Height="230" Background="Transparent" BorderThickness="0"
-                     ItemContainerStyle="{StaticResource NavItem}" Foreground="{DynamicResource Text}"
+                     ItemContainerStyle="{StaticResource ListRow}" Foreground="{DynamicResource Text}"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
               <ListBox.ItemTemplate>
                 <DataTemplate>
-                  <StackPanel>
-                    <TextBlock Text="{Binding Friendly}" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding Name}" FontFamily="Consolas" FontSize="11.5" Foreground="{DynamicResource Muted}"/>
+                  <StackPanel Margin="0,6">
+                    <TextBlock Text="{Binding Friendly}"/>
+                    <TextBlock Text="{Binding Name}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Foreground="{DynamicResource Muted}"/>
                   </StackPanel>
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>
-            <TextBlock Text="Name" FontWeight="SemiBold" Margin="0,10,0,0"/>
-            <TextBox x:Name="DlName" FontFamily="Consolas"/>
-            <TextBlock Text="Install into (its own sub-folder is created inside)" FontWeight="SemiBold" Margin="0,8,0,0"/>
+            <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="DlName" FontFamily="Cascadia Mono, Consolas"/>
+            <TextBlock Text="Install in (a folder for it is created inside)" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,6,0,0">
-              <Button x:Name="BtnDlFolder" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="Change..." Margin="8,0,0,0"/>
-              <TextBlock x:Name="DlFolder" FontFamily="Consolas" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              <Button x:Name="BtnDlFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" Margin="8,0,0,0"/>
+              <TextBlock x:Name="DlFolder" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </DockPanel>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="BtnDlCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,10,0"/>
-              <Button x:Name="BtnDlOk" Style="{StaticResource Primary}" Content="Download and install" IsEnabled="False"/>
-            </StackPanel>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnDlCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="BtnDlOk" Style="{StaticResource Primary}" Content="Download" IsEnabled="False" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- Back up a distro -->
           <StackPanel x:Name="PanelBackup" Visibility="Collapsed">
-            <TextBlock Text="Back up a distro (wsl --export)" FontSize="18" FontWeight="SemiBold"/>
-            <TextBlock Style="{StaticResource MutedText}" FontSize="13" Margin="0,6,0,12"
+            <TextBlock Text="Back up a distro" Style="{StaticResource DialogTitle}"/>
+            <TextBlock Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,12"
                        Text="A backup holds everything inside the distro: programs, desktop, users and files."/>
-            <TextBlock Text="Which distro?" FontWeight="SemiBold"/>
-            <ListBox x:Name="BakList" MaxHeight="170" Margin="0,6,0,0" Background="Transparent" BorderThickness="0"
-                     ItemContainerStyle="{StaticResource NavItem}" Foreground="{DynamicResource Text}"/>
-            <TextBlock Text="Format" FontWeight="SemiBold" Margin="0,10,0,4"/>
-            <RadioButton x:Name="BakTar" GroupName="fmt" IsChecked="True" Foreground="{DynamicResource Text}" Margin="0,2"
-                         Content=".tar - works on any WSL machine"/>
-            <RadioButton x:Name="BakVhdx" GroupName="fmt" Foreground="{DynamicResource Text}" Margin="0,2"
-                         Content=".vhdx - fastest, an exact copy of the disk"/>
-            <TextBlock Text="Save to" FontWeight="SemiBold" Margin="0,10,0,0"/>
+            <ListBox x:Name="BakList" MaxHeight="170" Background="Transparent" BorderThickness="0"
+                     ItemContainerStyle="{StaticResource ListRow}" Foreground="{DynamicResource Text}"/>
+            <TextBlock Text="Format" Style="{StaticResource FieldLabel}"/>
+            <RadioButton x:Name="BakTar" GroupName="fmt" IsChecked="True" Margin="0,8,0,3" Content=".tar - works on any PC with WSL"/>
+            <RadioButton x:Name="BakVhdx" GroupName="fmt" Content=".vhdx - faster, an exact copy of the disk"/>
+            <TextBlock Text="Save in" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,6,0,0">
-              <Button x:Name="BtnBakFolder" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="Change..." Margin="8,0,0,0"/>
-              <TextBlock x:Name="BakFolder" FontFamily="Consolas" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              <Button x:Name="BtnBakFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" Margin="8,0,0,0"/>
+              <TextBlock x:Name="BakFolder" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </DockPanel>
-            <TextBlock x:Name="BakWarn" Foreground="{DynamicResource Warn}" TextWrapping="Wrap" FontSize="12.5" Margin="0,12,0,0"
-                       Text="This STOPS the distro first (an open desktop or terminal closes - save your work)."/>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="BtnBakCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,10,0"/>
-              <Button x:Name="BtnBakOk" Style="{StaticResource Primary}" Content="Start the backup" IsEnabled="False"/>
-            </StackPanel>
+            <Border Background="{DynamicResource WarnSoft}" CornerRadius="4" Padding="12,10" Margin="0,16,0,0">
+              <DockPanel>
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE7BA;" Foreground="{DynamicResource Warn}" Margin="0,0,10,0" VerticalAlignment="Top"/>
+                <TextBlock x:Name="BakWarn" TextWrapping="Wrap" Text="The distro is stopped first, so an open desktop or terminal closes. Save your work."/>
+              </DockPanel>
+            </Border>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnBakCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="BtnBakOk" Style="{StaticResource Primary}" Content="Back up" IsEnabled="False" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- Restore a backup -->
           <StackPanel x:Name="PanelRestore" Visibility="Collapsed">
-            <TextBlock Text="Restore a backup (wsl --import)" FontSize="18" FontWeight="SemiBold"/>
-            <TextBlock x:Name="ResHint" Style="{StaticResource MutedText}" FontSize="13" Margin="0,6,0,10"/>
+            <TextBlock Text="Restore a backup" Style="{StaticResource DialogTitle}"/>
+            <TextBlock x:Name="ResHint" Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,12"/>
             <ListBox x:Name="ResList" MaxHeight="190" Background="Transparent" BorderThickness="0"
-                     ItemContainerStyle="{StaticResource NavItem}" Foreground="{DynamicResource Text}"/>
-            <Button x:Name="BtnResBrowse" Style="{StaticResource Small}" Content="Browse for a .tar / .vhdx file somewhere else (e.g. a USB)..."
-                    HorizontalAlignment="Left" Margin="0,8,0,0"/>
-            <TextBlock x:Name="ResFile" FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0"/>
-            <TextBlock Text="Name for the restored distro" FontWeight="SemiBold" Margin="0,10,0,0"/>
-            <TextBox x:Name="ResName" FontFamily="Consolas"/>
-            <TextBlock Text="Install into" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                     ItemContainerStyle="{StaticResource ListRow}" Foreground="{DynamicResource Text}"/>
+            <Button x:Name="BtnResBrowse" Style="{StaticResource Btn}" HorizontalAlignment="Left" Margin="0,8,0,0">
+              <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE8B7;" FontSize="14"/><TextBlock Text="Browse for a file" Margin="8,0,0,0"/></StackPanel>
+            </Button>
+            <TextBlock x:Name="ResFile" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+            <TextBlock Text="Name for the restored distro" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="ResName" FontFamily="Cascadia Mono, Consolas"/>
+            <TextBlock Text="Install in" Style="{StaticResource FieldLabel}"/>
             <DockPanel Margin="0,6,0,0">
-              <Button x:Name="BtnResFolder" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="Change..." Margin="8,0,0,0"/>
-              <TextBlock x:Name="ResFolder" FontFamily="Consolas" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+              <Button x:Name="BtnResFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" Margin="8,0,0,0"/>
+              <TextBlock x:Name="ResFolder" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </DockPanel>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="BtnResCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,10,0"/>
-              <Button x:Name="BtnResOk" Style="{StaticResource Primary}" Content="Restore" IsEnabled="False"/>
-            </StackPanel>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnResCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="BtnResOk" Style="{StaticResource Primary}" Content="Restore" IsEnabled="False" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
-          <!-- Memory / CPU limits -->
+          <!-- Memory and processors -->
           <StackPanel x:Name="PanelLimits" Visibility="Collapsed">
-            <TextBlock Text="WSL resource limits (.wslconfig)" FontSize="18" FontWeight="SemiBold"/>
-            <TextBlock x:Name="LimPath" Style="{StaticResource MutedText}" Margin="0,6,0,8"/>
-            <Border Background="{DynamicResource LogBg}" CornerRadius="8" Padding="10,8" MaxHeight="120">
+            <TextBlock Text="Memory and processors" Style="{StaticResource DialogTitle}"/>
+            <TextBlock x:Name="LimPath" Style="{StaticResource MutedText}" Margin="0,8,0,8"/>
+            <Border Background="{DynamicResource LogBg}" CornerRadius="4" Padding="10,8" MaxHeight="120">
               <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <TextBlock x:Name="LimCurrent" FontFamily="Consolas" FontSize="12.5" Foreground="#B7C0CF" TextWrapping="Wrap"/>
+                <TextBlock x:Name="LimCurrent" FontFamily="Cascadia Mono, Consolas" FontSize="12" Foreground="#CCCCCC" TextWrapping="Wrap"/>
               </ScrollViewer>
             </Border>
-            <UniformGrid Columns="3" Margin="0,14,0,0">
-              <Button x:Name="BtnLimLight"  Style="{StaticResource Btn}" Margin="0,0,6,0" Content="Light: 4 GB, 2 CPUs, 2 GB swap"/>
-              <Button x:Name="BtnLimMedium" Style="{StaticResource Btn}" Margin="3,0" Content="Balanced: 8 GB, 4 CPUs, 4 GB swap"/>
-              <Button x:Name="BtnLimHeavy"  Style="{StaticResource Btn}" Margin="6,0,0,0" Content="Heavy: 16 GB, 6 CPUs, 8 GB swap"/>
+            <TextBlock Text="Presets" Style="{StaticResource FieldLabel}"/>
+            <UniformGrid Columns="3" Margin="0,6,0,0">
+              <Button x:Name="BtnLimLight"  Style="{StaticResource Btn}" Margin="0,0,4,0" Padding="8,8">
+                <StackPanel><TextBlock Text="Light" HorizontalAlignment="Center"/><TextBlock Style="{StaticResource MutedText}" Text="4 GB, 2 CPUs, 2 GB swap" HorizontalAlignment="Center"/></StackPanel>
+              </Button>
+              <Button x:Name="BtnLimMedium" Style="{StaticResource Btn}" Margin="2,0" Padding="8,8">
+                <StackPanel><TextBlock Text="Balanced" HorizontalAlignment="Center"/><TextBlock Style="{StaticResource MutedText}" Text="8 GB, 4 CPUs, 4 GB swap" HorizontalAlignment="Center"/></StackPanel>
+              </Button>
+              <Button x:Name="BtnLimHeavy"  Style="{StaticResource Btn}" Margin="4,0,0,0" Padding="8,8">
+                <StackPanel><TextBlock Text="Heavy" HorizontalAlignment="Center"/><TextBlock Style="{StaticResource MutedText}" Text="16 GB, 6 CPUs, 8 GB swap" HorizontalAlignment="Center"/></StackPanel>
+              </Button>
             </UniformGrid>
-            <TextBlock Text="Custom values" FontWeight="SemiBold" Margin="0,14,0,0"/>
+            <TextBlock Text="Custom" Style="{StaticResource FieldLabel}"/>
             <UniformGrid Columns="3">
-              <StackPanel Margin="0,0,6,0"><TextBlock Text="Memory (e.g. 6GB)" Style="{StaticResource MutedText}" Margin="0,4,0,0"/><TextBox x:Name="LimMem"/></StackPanel>
-              <StackPanel Margin="3,0"><TextBlock Text="Processors (e.g. 4)" Style="{StaticResource MutedText}" Margin="0,4,0,0"/><TextBox x:Name="LimCpu"/></StackPanel>
-              <StackPanel Margin="6,0,0,0"><TextBlock Text="Swap (e.g. 2GB, or 0)" Style="{StaticResource MutedText}" Margin="0,4,0,0"/><TextBox x:Name="LimSwap"/></StackPanel>
+              <StackPanel Margin="0,0,4,0"><TextBlock Text="Memory (e.g. 6GB)" Style="{StaticResource MutedText}" Margin="0,4,0,0"/><TextBox x:Name="LimMem"/></StackPanel>
+              <StackPanel Margin="2,0"><TextBlock Text="Processors (e.g. 4)" Style="{StaticResource MutedText}" Margin="0,4,0,0"/><TextBox x:Name="LimCpu"/></StackPanel>
+              <StackPanel Margin="4,0,0,0"><TextBlock Text="Swap (e.g. 2GB or 0)" Style="{StaticResource MutedText}" Margin="0,4,0,0"/><TextBox x:Name="LimSwap"/></StackPanel>
             </UniformGrid>
-            <TextBlock Style="{StaticResource MutedText}" Margin="0,6,0,0"
-                       Text="Only these three settings change; the rest of .wslconfig is kept, and a copy is saved as .wslconfig.bak. Takes effect after Shut down all."/>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="BtnLimReset" Style="{StaticResource Btn}" Content="Reset to WSL's defaults" Margin="0,0,10,0"/>
-              <Button x:Name="BtnLimClose" Style="{StaticResource Btn}" Content="Close" Margin="0,0,10,0"/>
-              <Button x:Name="BtnLimCustom" Style="{StaticResource Primary}" Content="Save custom values"/>
-            </StackPanel>
+            <TextBlock Style="{StaticResource MutedText}" Margin="0,8,0,0"
+                       Text="Only these three settings change; the rest of .wslconfig is kept, with a copy saved as .wslconfig.bak. Takes effect after you shut down WSL."/>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnLimReset" Style="{StaticResource Btn}" Content="Use WSL defaults" Margin="0,0,8,0"/>
+                <Button x:Name="BtnLimClose" Style="{StaticResource Btn}" Content="Close" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="BtnLimCustom" Style="{StaticResource Primary}" Content="Save custom" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
 
           <!-- Data folders -->
           <StackPanel x:Name="PanelFolders" Visibility="Collapsed">
-            <TextBlock Text="Where your data is saved" FontSize="18" FontWeight="SemiBold"/>
-            <TextBlock x:Name="FolConfig" Style="{StaticResource MutedText}" Margin="0,6,0,14"/>
-            <DockPanel>
-              <Button x:Name="BtnFolLinux" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="Change..." VerticalAlignment="Center" Margin="8,0,0,0"/>
-              <StackPanel><TextBlock Text="Linux disks (new distros)" FontWeight="SemiBold"/>
-                <TextBlock x:Name="FolLinux" FontFamily="Consolas" FontSize="12.5" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/></StackPanel>
-            </DockPanel>
-            <Separator Margin="0,12" Background="{DynamicResource Line}"/>
-            <DockPanel>
-              <Button x:Name="BtnFolBackup" DockPanel.Dock="Right" Style="{StaticResource Small}" Content="Change..." VerticalAlignment="Center" Margin="8,0,0,0"/>
-              <StackPanel><TextBlock Text="Backups" FontWeight="SemiBold"/>
-                <TextBlock x:Name="FolBackup" FontFamily="Consolas" FontSize="12.5" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/></StackPanel>
-            </DockPanel>
-            <TextBlock Style="{StaticResource MutedText}" Margin="0,14,0,0"
-                       Text="A change only applies to NEW distros and NEW backups; existing ones stay where they are."/>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-              <Button x:Name="BtnFolDefaults" Style="{StaticResource Btn}" Content="Put both back to the defaults" Margin="0,0,10,0"/>
-              <Button x:Name="BtnFolClose" Style="{StaticResource Primary}" Content="Close"/>
-            </StackPanel>
+            <TextBlock Text="Data folders" Style="{StaticResource DialogTitle}"/>
+            <TextBlock x:Name="FolConfig" Style="{StaticResource MutedText}" Margin="0,8,0,16"/>
+            <Border Style="{StaticResource CardBox}" MinHeight="0">
+              <DockPanel>
+                <Button x:Name="BtnFolLinux" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <StackPanel><TextBlock Text="Linux disks (new distros)"/>
+                  <TextBlock x:Name="FolLinux" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/></StackPanel>
+              </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardBox}" MinHeight="0">
+              <DockPanel>
+                <Button x:Name="BtnFolBackup" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Change" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <StackPanel><TextBlock Text="Backups"/>
+                  <TextBlock x:Name="FolBackup" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/></StackPanel>
+              </DockPanel>
+            </Border>
+            <TextBlock Style="{StaticResource MutedText}" Margin="0,8,0,0"
+                       Text="Changes apply to new distros and new backups. Existing ones stay where they are."/>
+            <Border Style="{StaticResource DialogFooter}">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnFolDefaults" Style="{StaticResource Btn}" Content="Use default folders" Margin="0,0,8,0"/>
+                <Button x:Name="BtnFolClose" Style="{StaticResource Primary}" Content="Done" MinWidth="96"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
         </Grid>
       </Border>
     </Grid>
-
-    <!-- Toast -->
-    <Border x:Name="Toast" Grid.ColumnSpan="2" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-            Margin="0,0,20,20" Background="{DynamicResource Raised}" BorderBrush="{DynamicResource Ok}" BorderThickness="4,1,1,1"
-            CornerRadius="10" Padding="14,10" MinWidth="260" MaxWidth="560">
-      <TextBlock x:Name="ToastText" Text="" TextWrapping="Wrap"/>
-    </Border>
   </Grid>
 </Window>

@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in the window, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '2.0.0'
+$PANEL_VERSION = '2.1.0'
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
@@ -53,27 +53,30 @@ $ui.VersionText.Text = "v$PANEL_VERSION"
 $MIDDOT = [string][char]0x00B7
 
 # ------------------------------------------------------------------------------
-# Themes: one colour per meaning, in both a dark and a light set
+# Themes: the Windows 11 colour roles (as in WinUI) in dark and light, plus the
+# user's own Windows accent colour. Mica (Windows 11) shows through WindowBg /
+# Sidebar when it is available.
 # ------------------------------------------------------------------------------
 $Themes = @{
-    Dark  = @{ Bg = '#0F1115'; Sidebar = '#14171D'; Card = '#1A1E26'; Raised = '#232935'; Line = '#2A303C'
-               Text = '#E8EAEF'; Muted = '#8B93A3'; Accent = '#4FB6FF'; AccentInk = '#04121F'; AccentSoft = '#1E3448'
-               Ok = '#3CCF91'; OkSoft = '#173A2E'; Warn = '#F5B84A'; Danger = '#FF6B6B'; DangerSoft = '#3A1F24'; LogBg = '#0A0C10' }
-    Light = @{ Bg = '#F4F6FA'; Sidebar = '#FFFFFF'; Card = '#FFFFFF'; Raised = '#EEF1F6'; Line = '#E1E5EC'
-               Text = '#161A22'; Muted = '#677084'; Accent = '#0A78D1'; AccentInk = '#FFFFFF'; AccentSoft = '#E1EEFA'
-               Ok = '#12945F'; OkSoft = '#DDF2E8'; Warn = '#A86B00'; Danger = '#D33A3A'; DangerSoft = '#FBE6E6'; LogBg = '#0A0C10' }
+    Dark  = @{ WindowBg = '#202020'; Sidebar = '#00000000'; LayerFill = '#4C3A3A3A'; Card = '#0DFFFFFF'; Line = '#1F000000'
+               ControlFill = '#0FFFFFFF'; ControlHover = '#15FFFFFF'; ControlPressed = '#08FFFFFF'; ControlStroke = '#12FFFFFF'
+               InputActive = '#B31E1E1E'; SubtleHover = '#0FFFFFFF'; SubtleSelected = '#0BFFFFFF'; Raised = '#0FFFFFFF'
+               Text = '#FFFFFF'; Muted = '#C5FFFFFF'; Tertiary = '#87FFFFFF'
+               Ok = '#6CCB5F'; OkSoft = '#393D1B'; Warn = '#FCE100'; WarnSoft = '#433519'
+               Danger = '#FF99A4'; DangerSoft = '#442726'; DangerFill = '#C42B1C'
+               Smoke = '#4D000000'; DialogBg = '#2B2B2B'; DialogFooter = '#202020'; LogBg = '#0C0C0C' }
+    Light = @{ WindowBg = '#F3F3F3'; Sidebar = '#00000000'; LayerFill = '#80FFFFFF'; Card = '#B3FFFFFF'; Line = '#0F000000'
+               ControlFill = '#B3FFFFFF'; ControlHover = '#80F9F9F9'; ControlPressed = '#4DF9F9F9'; ControlStroke = '#1F000000'
+               InputActive = '#FFFFFF'; SubtleHover = '#09000000'; SubtleSelected = '#06000000'; Raised = '#0A000000'
+               Text = '#E4000000'; Muted = '#9E000000'; Tertiary = '#72000000'
+               Ok = '#0F7B0F'; OkSoft = '#DFF6DD'; Warn = '#9D5D00'; WarnSoft = '#FFF4CE'
+               Danger = '#C42B1C'; DangerSoft = '#FDE7E9'; DangerFill = '#C42B1C'
+               Smoke = '#4D000000'; DialogBg = '#FFFFFF'; DialogFooter = '#F3F3F3'; LogBg = '#0C0C0C' }
 }
 # The [Brush] cast matters: without it PowerShell stores its PSObject wrapper
 # in the resource dictionary, and WPF rejects that as a colour.
 $BrushConv = New-Object Windows.Media.BrushConverter
 function New-Brush([string]$hex) { return [Windows.Media.Brush]$BrushConv.ConvertFromString($hex) }
-
-$script:Theme = 'Dark'
-function Set-Theme([string]$name) {
-    foreach ($k in $Themes[$name].Keys) { $win.Resources[$k] = [Windows.Media.Brush](New-Brush $Themes[$name][$k]) }
-    $script:Theme = $name
-    $ui.BtnTheme.Content = $(if ($name -eq 'Dark') { 'Switch to light theme' } else { 'Switch to dark theme' })
-}
 
 # Windows' own "app mode" setting (Settings > Personalization > Colors).
 function Get-WindowsTheme {
@@ -84,21 +87,146 @@ function Get-WindowsTheme {
     return 'Dark'
 }
 
+# The accent colour chosen in Windows (stored as ABGR), as '#RRGGBB'.
+function Get-WindowsAccent {
+    try {
+        $v = [int64](Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\DWM' -Name AccentColor -ErrorAction Stop) -band 0xFFFFFFFF
+        return ('#{0:X2}{1:X2}{2:X2}' -f ($v -band 0xFF), (($v -shr 8) -band 0xFF), (($v -shr 16) -band 0xFF))
+    } catch { return '#0078D4' }
+}
+
+# Mixes two '#RRGGBB' colours: $t = 0 gives $a, 1 gives $b.
+function Get-MixedColor([string]$a, [string]$b, [double]$t) {
+    $out = '#'
+    foreach ($i in 1, 3, 5) {
+        $x = [Convert]::ToInt32($a.Substring($i, 2), 16); $y = [Convert]::ToInt32($b.Substring($i, 2), 16)
+        $out += '{0:X2}' -f [int][math]::Round($x + ($y - $x) * $t)
+    }
+    return $out
+}
+
+# The accent roles, like Windows derives them: a lighter tint in dark mode
+# (with black text on it), a darker shade in light mode (with white text).
+function Get-AccentRoles([string]$name) {
+    $acc = Get-WindowsAccent
+    if ($name -eq 'Dark') {
+        return @{ Accent = (Get-MixedColor $acc '#FFFFFF' 0.45); AccentHover = (Get-MixedColor $acc '#FFFFFF' 0.35)
+                  AccentInk = '#000000'; AccentSoft = '#33' + $acc.Substring(1) }
+    }
+    return @{ Accent = (Get-MixedColor $acc '#000000' 0.15); AccentHover = (Get-MixedColor $acc '#000000' 0.05)
+              AccentInk = '#FFFFFF'; AccentSoft = '#26' + $acc.Substring(1) }
+}
+
+# ------------------------------------------------------------------------------
+# Windows 11 window material: Mica behind the window and a title bar that
+# matches the theme, through dwmapi (compiled by .NET itself - nothing to
+# install). On Windows 10 the calls fail quietly and the plain colours stay.
+# ------------------------------------------------------------------------------
+if (-not ('WslPanel.Dwm' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace WslPanel {
+    public static class Dwm {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MARGINS { public int Left; public int Right; public int Top; public int Bottom; }
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
+    }
+}
+'@
+}
+$DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+$DWMWA_SYSTEMBACKDROP_TYPE = 38
+$script:Mica = $false
+$script:Hwnd = [IntPtr]::Zero
+
+function Set-TitleBarTheme {
+    if ($script:Hwnd -eq [IntPtr]::Zero) { return }
+    $dark = [int]($script:Theme -eq 'Dark')
+    try { [void][WslPanel.Dwm]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$dark, 4) } catch { }
+}
+
+# Turns on Mica (Windows 11 22H2 and later). $true when it is on.
+function Enable-Mica {
+    try {
+        $script:Hwnd = (New-Object System.Windows.Interop.WindowInteropHelper($win)).EnsureHandle()
+        Set-TitleBarTheme
+        $mica = 2   # DWMSBT_MAINWINDOW
+        if ([WslPanel.Dwm]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_SYSTEMBACKDROP_TYPE, [ref]$mica, 4) -ne 0) { return $false }
+        $m = New-Object WslPanel.Dwm+MARGINS
+        $m.Left = -1; $m.Right = -1; $m.Top = -1; $m.Bottom = -1
+        [void][WslPanel.Dwm]::DwmExtendFrameIntoClientArea($script:Hwnd, [ref]$m)
+        [System.Windows.Interop.HwndSource]::FromHwnd($script:Hwnd).CompositionTarget.BackgroundColor = [Windows.Media.Colors]::Transparent
+        return $true
+    } catch { return $false }
+}
+
+$script:Theme = 'Dark'
+function Set-Theme([string]$name) {
+    $script:Theme = $name
+    $roles = $Themes[$name].Clone()
+    $accent = Get-AccentRoles $name
+    foreach ($k in $accent.Keys) { $roles[$k] = $accent[$k] }
+    if ($script:Mica) { $roles.WindowBg = '#00000000' }   # let Mica show through
+    foreach ($k in $roles.Keys) { $win.Resources[$k] = [Windows.Media.Brush](New-Brush $roles[$k]) }
+    $ui.ThemeText.Text = $(if ($name -eq 'Dark') { 'Light theme' } else { 'Dark theme' })
+    Set-TitleBarTheme
+}
+
+# The app's icon (window, taskbar and the top of the navigation pane): a
+# terminal window drawn in white on the Windows accent colour.
+function New-AppIcon {
+    $dv = New-Object Windows.Media.DrawingVisual
+    $dc = $dv.RenderOpen()
+    $dc.DrawRoundedRectangle((New-Brush (Get-WindowsAccent)), $null, (New-Object Windows.Rect 0, 0, 64, 64), 14, 14)
+    $pen = New-Object Windows.Media.Pen ((New-Brush '#FFFFFF'), 5)
+    $pen.StartLineCap = 'Round'; $pen.EndLineCap = 'Round'; $pen.LineJoin = 'Round'
+    $dc.DrawRoundedRectangle($null, $pen, (New-Object Windows.Rect 12, 14, 40, 36), 6, 6)
+    $dc.DrawGeometry($null, $pen, [Windows.Media.Geometry]::Parse('M 21,26 L 28,32 L 21,38'))
+    $dc.DrawLine($pen, (New-Object Windows.Point 32, 38), (New-Object Windows.Point 42, 38))
+    $dc.Close()
+    $bmp = New-Object Windows.Media.Imaging.RenderTargetBitmap 64, 64, 96, 96, ([Windows.Media.PixelFormats]::Pbgra32)
+    $bmp.Render($dv)
+    $bmp.Freeze()
+    return $bmp
+}
+
 # ------------------------------------------------------------------------------
 # Toast (quick results) and dialogs
 # ------------------------------------------------------------------------------
 $script:ToastTimer = New-Object Windows.Threading.DispatcherTimer
-$script:ToastTimer.Interval = [TimeSpan]::FromSeconds(5)
+$script:ToastTimer.Interval = [TimeSpan]::FromSeconds(8)
 $script:ToastTimer.Add_Tick({ $ui.Toast.Visibility = 'Collapsed'; $script:ToastTimer.Stop() })
 
-# A one-line result in the corner. $kind: 'Ok', 'Warn' or 'Error'.
+# A quick result as a Fluent InfoBar at the top of the page.
+# $kind: 'Ok' (success), 'Warn' or 'Error'.
 function Show-Toast([string]$msg, [string]$kind = 'Ok') {
     $ui.ToastText.Text = $msg
-    $key = @{ Ok = 'Ok'; Warn = 'Warn'; Error = 'Danger' }[$kind]
-    $ui.Toast.SetResourceReference([Windows.Controls.Border]::BorderBrushProperty, $key)
+    switch ($kind) {
+        'Warn' {
+            $ui.Toast.SetResourceReference([Windows.Controls.Border]::BackgroundProperty, 'WarnSoft')
+            $ui.ToastIconBg.Visibility = 'Collapsed'
+            $ui.ToastIcon.Text = [string][char]0xE7BA; $ui.ToastIcon.FontSize = 16
+            $ui.ToastIcon.SetResourceReference([Windows.Controls.TextBlock]::ForegroundProperty, 'Warn')
+        }
+        default {
+            $soft = $(if ($kind -eq 'Error') { 'DangerSoft' } else { 'OkSoft' })
+            $strong = $(if ($kind -eq 'Error') { 'Danger' } else { 'Ok' })
+            $ui.Toast.SetResourceReference([Windows.Controls.Border]::BackgroundProperty, $soft)
+            $ui.ToastIconBg.Visibility = 'Visible'
+            $ui.ToastIconBg.SetResourceReference([Windows.Shapes.Shape]::FillProperty, $strong)
+            $ui.ToastIcon.Text = $(if ($kind -eq 'Error') { [string][char]0xE711 } else { [string][char]0xE73E })
+            $ui.ToastIcon.FontSize = 10
+            $ui.ToastIcon.SetResourceReference([Windows.Controls.TextBlock]::ForegroundProperty, 'AccentInk')
+        }
+    }
     $ui.Toast.Visibility = 'Visible'
     $script:ToastTimer.Stop(); $script:ToastTimer.Start()
 }
+$ui.ToastClose.Add_Click({ $ui.Toast.Visibility = 'Collapsed'; $script:ToastTimer.Stop() })
 
 $Panels = 'PanelMessage', 'PanelUser', 'PanelTask', 'PanelDelete', 'PanelPick', 'PanelDownload', 'PanelBackup',
           'PanelRestore', 'PanelLimits', 'PanelFolders'
@@ -952,7 +1080,12 @@ function Show-FirstRun {
 # ------------------------------------------------------------------------------
 # Start
 # ------------------------------------------------------------------------------
-Set-Theme (Get-WindowsTheme)
+$script:Theme = Get-WindowsTheme
+$script:Mica = Enable-Mica
+Set-Theme $script:Theme
+$appIcon = New-AppIcon
+$win.Icon = $appIcon
+$ui.AppIcon.Source = $appIcon
 Initialize-Worker
 Update-DistroList
 
@@ -968,7 +1101,8 @@ if ($Validate) {
     [void]$ps.AddScript('Test-LinuxUserName ''alex''')
     $ok = $ps.Invoke()
     if (-not $ok -or -not $ok[0]) { throw 'The background worker did not load the engine.' }
-    "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found."
+    Show-Toast 'Test' 'Ok'; Show-Toast 'Test' 'Warn'; Show-Toast 'Test' 'Error'
+    "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found, Mica: $($script:Mica), accent: $(Get-WindowsAccent)"
     exit 0
 }
 
