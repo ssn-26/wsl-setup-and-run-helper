@@ -1,7 +1,31 @@
 # WSL Setup and Run Helper
 
-A small Windows app (a double-click `.bat` launcher plus PowerShell) that gives new users a **no-code way to
-install and run Linux on Windows** through WSL (Windows Subsystem for Linux), in a proper window with buttons.
+A small Windows app that gives new users a **no-code way to install and run
+Linux on Windows** through WSL (Windows Subsystem for Linux), in a proper
+Windows 11-style window with buttons.
+
+## Install
+
+Open **PowerShell** (Start menu -> type *PowerShell*), paste this line and press Enter:
+
+```powershell
+irm https://raw.githubusercontent.com/ssn-26/wsl-setup-and-run-helper/main/install.ps1 | iex
+```
+
+That's all: no administrator rights, no security warnings. It puts **WSL Control
+Panel** in the Start menu and on the desktop (and under Settings -> Apps, to
+uninstall it). Run the same line again to update; your saved logins and settings
+are kept.
+
+<details><summary>Prefer the ZIP?</summary>
+
+Download the ZIP from GitHub, then right-click it -> **Properties** -> tick
+**Unblock** -> OK *before* extracting (this stops Windows' "Do you want to run
+this file?" warnings). Then double-click **`Install.bat`** to install it as
+above, or double-click `WSL-Control-Panel.bat` to run it from the folder without
+installing. (Double-clicking `install.ps1` itself only asks which app to open it
+with - Windows never runs .ps1 files on a double-click.)
+</details>
 
 Double-click it on a brand-new PC and it installs WSL for you. On a PC that
 already has WSL it becomes a control panel for your Linux distros: download,
@@ -27,7 +51,7 @@ My try to learn bash through a real-world working project.
 
 - **Left side:** your distros (running ones have a green dot), **Open default
   desktop**, **Download a distro**, and the tools: Back up, Restore, Close
-  running, Shut down all, Compact a disk, Memory / CPU, Data folders, Update WSL.
+  running, Shut down all, Compact a disk, Memory / CPU, Storage locations, Update WSL.
 - **Right side:** the distro you picked - **Open desktop**, **Terminal** and
   **Close**, "Open as" (which saved login to use), its saved accounts, its
   Remote Desktop port, systemd on/off, Compact disk, and Delete.
@@ -43,11 +67,16 @@ My try to learn bash through a real-world working project.
 | Restore | `wsl --import` brings a backup back, on this PC or a new one |
 | Compact | Hands unused `ext4.vhdx` space back to Windows (admin, via diskpart) |
 | Memory / CPU | Sets `memory`, `processors` and `swap` in `.wslconfig`; your other settings stay (a copy is kept as `.wslconfig.bak`) |
-| Data folders | Choose where new Linux disks and backups are saved |
+| Storage locations | Shows where every distro, your backups and the panel's settings are, each with an **Open** button |
 | Update WSL | `wsl --update` (admin) |
 
 Long jobs (downloads, desktop installs, backups) show their live output in a
 progress window, so you can see what is happening, and the panel never freezes.
+
+The distro page shows its disk size (and the free space on that drive) and the
+memory WSL is using right now, refreshed every few seconds. Keyboard: **Esc**
+closes a dialog, **Enter** presses its main button, **F5** refreshes, and
+**Ctrl+1** to **Ctrl+9** pick a distro.
 
 - **Desktop or Terminal.** Kali opens in its own Win-KeX window. Every other
   distro opens in Windows Remote Desktop (xrdp, default port **3390** so it never
@@ -88,21 +117,22 @@ progress window, so you can see what is happening, and the panel never freezes.
   UAC prompt; the panel itself runs as a normal window).
 - An internet connection to download WSL, distros and desktop packages.
 
-**The security warning on the first start.** Windows marks files that come
-from a downloaded ZIP and asks *"Do you want to run this file?"* before
-running them. Click **Run**: the panel then marks its own files as safe, so the
-warning does not come back. To avoid even that one, right-click the ZIP ->
-**Properties** -> tick **Unblock** -> OK, *before* extracting it.
+**Why there is no security warning.** Windows tags everything a browser
+downloads as "from the internet", and that tag is what triggers *"Do you want to
+run this file?"* and SmartScreen. Signed apps avoid it with a paid certificate;
+this one avoids it by being downloaded by PowerShell itself (no tag) and by
+building its small `WSL Control Panel.exe` on your PC with the C# compiler that
+is part of Windows. The exe only starts the panel's PowerShell scripts inside
+itself, so there is no console window behind the app.
 
 ---
 
 ## Quick start: your first Linux desktop
 
-1. Copy this folder anywhere (keep it as it is, with its sub-folders) and double-click
-   **`WSL-Control-Panel.bat`**.
+1. [Install it](#install) and open **WSL Control Panel** from the Start menu.
    On a PC without WSL, allow the administrator prompt and restart if asked.
 2. **Download a distro**: pick one from the list (e.g. Ubuntu 24.04, Debian,
-   Arch Linux, Kali Linux) and keep the default folder.
+   Arch Linux, Kali Linux) and **choose the folder** to store it in (e.g. on a drive with plenty of space).
 3. **Create your login** right away: when the download finishes, the panel
    asks you to create your Linux user. Choose a username (it suggests your
    Windows name) and a password. The progress window shows each step while it
@@ -116,7 +146,7 @@ warning does not come back. To avoid even that one, right-click the ZIP ->
 ## Moving to a new PC
 
 1. On the old PC: **Back up** the distro, then copy the `.tar` file (from
-   the `data\backups` folder or wherever you saved it) to a USB drive or cloud storage.
+   the folder you chose for it) to a USB drive or cloud storage.
 2. On the new PC: run the panel (it installs WSL if needed), then **Restore**.
    Pick the backup (or **Browse** for it). The distro comes back exactly as it
    was, with your normal user as the default login.
@@ -149,35 +179,33 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 
 ## Folder layout
 
+Installed, it lives in `%LOCALAPPDATA%\Programs\WSL Control Panel`:
+
 ```
-WSL-Control-Panel.bat     <- double-click this
+WSL Control Panel.exe     <- the app (built on your PC by install.ps1)
+WSL-Control-Panel.bat     runs the panel without installing (from an unzipped copy)
+Install.bat               double-click to install from an unzipped copy
+install.ps1               install / update / -Uninstall
 README.md
 LICENSE                   MIT licence
+launcher\                 Launcher.cs (the exe's source), build.ps1, app.ico
 bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
                           + xsession, the desktop session file both installers write
 powershell\               the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
-                          it does), ui\MainWindow.xaml (the window's layout and colours)
-data\                     everything the panel creates (never committed to git)
+                          it does), AppIcon.ps1 (the icon), ui\MainWindow.xaml (layout and colours)
+data\                     the panel's own files (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
-  backups\                backups made with Back up
-  linux\                  one folder per distro, holding its disk (ext4.vhdx)
   logs\                   the full output of each desktop install
 ```
 
-The `data` folders are created the first time they are needed. The Linux disks
-and the backups can be big, so you can move them with **Data folders** in
-the panel (for example to another drive). A change applies to new distros and new
-backups only. The settings and saved logins always stay in `data\config`, next to
-the panel.
-
-You can also edit `data\config\config.json` by hand:
-
-```json
-{ "WslBase": "E:\\Linux", "BackupBase": "E:\\Backups", "DefaultRdpPort": 3390 }
-```
-
-The whole folder is portable: copy it to a USB drive or another PC and it keeps
-working (saved passwords only decrypt on the same Windows login, though).
+**Your Linux disks and backups are never stored in the panel's folder.**
+Download, Back up and Restore always ask where to save (the folder picker
+opens where you chose last time), so they go where you decide - for example a
+drive with plenty of space - and updating or uninstalling the panel never
+touches them. Each distro's page shows where its disk is (**Open folder**), and
+**Storage locations** lists all of them, your last backup folder and the
+settings folder. Uninstalling only offers to delete the saved logins and
+settings.
 
 ---
 
@@ -196,7 +224,9 @@ working (saved passwords only decrypt on the same Windows login, though).
 | Remote Desktop window is black (nothing on the Windows desktop either) | The XFCE session didn't start for that user | Log in with a user the panel created (it sets up the XFCE session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` end with `exec startxfce4` |
 | Desktop closes a few seconds after opening | WSL idle shutdown | Open it through the panel. Its keep-alive holds WSL up while XFCE runs |
 | *"Failed to attach disk ... ext4.vhdx ... ERROR_SHARING_VIOLATION"* | Another program has the distro's disk file open: a stuck WSL, a copy or backup of `data\linux` still running, the `.vhdx` double-clicked (Windows mounted it), or antivirus | The panel catches this before opening and offers **Shut down WSL and try again**, or **Detach the disk and try again**. Still stuck? Restart Windows |
-| *"Do you want to run this file?"* every time | Windows marks files from a downloaded ZIP | Click **Run** once: the panel then unblocks its own files. Or unblock the ZIP before extracting (see Requirements) |
+| *"Do you want to run this file?"* every time | Windows marks files from a downloaded ZIP | [Install it](#install) with the one line instead. Or click **Run** once (the panel then unblocks its own files), or unblock the ZIP before extracting |
+| A console window stays open behind the panel | Started with `WSL-Control-Panel.bat`: on Windows 11 the console opens in Windows Terminal, which ignores "hidden" | [Install it](#install) and use **WSL Control Panel** from the Start menu (no console at all) |
+| The installer says *"Building WSL Control Panel.exe failed"* | Rare: antivirus blocked the C# compiler, or .NET Framework 4 is damaged | Allow it in your antivirus and run the line again, or use `WSL-Control-Panel.bat` from the install folder |
 | WSL itself won't start | Outdated or broken WSL | **Update WSL**, then restart Windows |
 
 ---

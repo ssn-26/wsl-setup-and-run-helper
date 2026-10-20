@@ -12,13 +12,12 @@
 $env:WSL_UTF8 = '1'
 
 # Folder layout (this file lives in <root>\powershell):
-#   <root>\WSL-Control-Panel.bat   start file
+#   <root>\WSL Control Panel.exe   the app (built by install.ps1), or WSL-Control-Panel.bat
 #   <root>\bash\                   the Linux-side scripts
 #   <root>\powershell\             this engine + the window (WSL-Control-Panel.ps1, ui\)
 #   <root>\data\config\            config.json + saved accounts (encrypted passwords)
-#   <root>\data\backups\           backups                     (location can be changed)
-#   <root>\data\linux\             one folder per distro disk  (location can be changed)
 #   <root>\data\logs\              output of desktop installs
+# Distro disks and backups go wherever you choose each time (never in <root>).
 $SCRIPT_DIR = $PSScriptRoot
 $ROOT_DIR = Split-Path -Parent $SCRIPT_DIR
 
@@ -43,9 +42,12 @@ function Save-Config {
 }
 
 function Get-Config {
+    # WslBase / BackupBase: the folders chosen last time for a new distro and
+    # for a backup. Only a starting point for the folder picker - the panel
+    # always asks where to save.
     $cfg = [PSCustomObject]@{
-        WslBase        = Join-Path $DATA_FOLDER 'linux'
-        BackupBase     = Join-Path $DATA_FOLDER 'backups'
+        WslBase        = ''
+        BackupBase     = ''
         DefaultRdpPort = 3390
     }
     if (Test-Path -LiteralPath $CONFIG_FILE) {
@@ -1011,10 +1013,10 @@ function Export-WslDistro([string]$name, [string]$dir, [string]$ext) {
     return $result
 }
 
-# The newest 15 backups in the backups folder.
+# The newest 15 backups in the folder used for the last backup.
 function Get-BackupFiles {
     $dir = $Global:Config.BackupBase
-    if (-not (Test-Path -LiteralPath $dir)) { return @() }
+    if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { return @() }
     return @(Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Extension -in '.tar', '.vhdx' } |
         Sort-Object LastWriteTime -Descending | Select-Object -First 15)
 }
@@ -1083,8 +1085,8 @@ function Test-LimitValues([string]$mem, [string]$cpu, [string]$swap) {
     return ($mem -match '^\d+(GB|MB)$' -and $cpu -match '^\d+$' -and $swap -match '^\d+(GB|MB)?$')
 }
 
-# Changes where NEW distros ('WslBase') or NEW backups ('BackupBase') go.
-# Returns $null, or why the folder cannot be used.
+# Remembers the folder chosen for a new distro ('WslBase') or a backup
+# ('BackupBase'), creating it. Returns $null, or why it cannot be used.
 function Set-DataFolder([string]$which, [string]$path) {
     if ($path -notmatch '^([A-Za-z]:\\|\\\\)') { return 'Please choose a FULL path that starts with a drive letter, e.g. E:\Linux' }
     if ($path.Length -gt 3) { $path = $path.TrimEnd('\') }
@@ -1096,17 +1098,11 @@ function Set-DataFolder([string]$which, [string]$path) {
     return $null
 }
 
-function Reset-DataFolders {
-    $Global:Config.WslBase = Join-Path $DATA_FOLDER 'linux'
-    $Global:Config.BackupBase = Join-Path $DATA_FOLDER 'backups'
-    Save-Config
-}
-
 # ------------------------------------------------------------------------------
-# Load the settings and create the data folders up front so the layout is
-# visible (best effort - a folder on a drive that is not plugged in is skipped).
+# Load the settings and create the settings folders up front. Distro disks and
+# backups go wherever you choose each time, never in here.
 # ------------------------------------------------------------------------------
 $Global:Config = Get-Config
-foreach ($d in @($CONFIG_FOLDER, $ACCOUNTS_FOLDER, $Global:Config.WslBase, $Global:Config.BackupBase)) {
+foreach ($d in @($CONFIG_FOLDER, $ACCOUNTS_FOLDER)) {
     try { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } } catch { }
 }

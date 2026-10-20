@@ -5,7 +5,8 @@
 # desktops (xrdp + Remote Desktop, or Win-KeX on Kali), backup / restore, disk
 # compaction, .wslconfig limits.
 #
-# Start it with the WSL-Control-Panel.bat launcher. All the work is done by
+# Start it with "WSL Control Panel.exe" (built by install.ps1) or the
+# WSL-Control-Panel.bat launcher. All the work is done by
 # Engine.ps1 (dot-sourced below); this file is only the window. Long jobs run
 # in a background runspace that loads the same engine, so the window never
 # freezes. -Validate builds the window without showing it (used by CI).
@@ -22,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in the window, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '2.0.0'
+$PANEL_VERSION = '2.2.0'
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
@@ -38,6 +39,7 @@ trap {
 
 $ENGINE = Join-Path $PSScriptRoot 'Engine.ps1'
 . $ENGINE
+. (Join-Path $PSScriptRoot 'AppIcon.ps1')
 
 # ------------------------------------------------------------------------------
 # The window: every x:Name in the XAML becomes $ui.<Name>
@@ -50,30 +52,34 @@ foreach ($m in [regex]::Matches($xamlText, 'x:Name="([A-Za-z0-9_]+)"')) {
     if ($el) { $ui[$m.Groups[1].Value] = $el }
 }
 $ui.VersionText.Text = "v$PANEL_VERSION"
+$ui.TitleVersion.Text = "v$PANEL_VERSION"
 $MIDDOT = [string][char]0x00B7
 
 # ------------------------------------------------------------------------------
-# Themes: one colour per meaning, in both a dark and a light set
+# Themes: the Windows 11 colour roles (as in WinUI) in dark and light, plus the
+# user's own Windows accent colour. Mica (Windows 11) shows through WindowBg /
+# Sidebar when it is available.
 # ------------------------------------------------------------------------------
 $Themes = @{
-    Dark  = @{ Bg = '#0F1115'; Sidebar = '#14171D'; Card = '#1A1E26'; Raised = '#232935'; Line = '#2A303C'
-               Text = '#E8EAEF'; Muted = '#8B93A3'; Accent = '#4FB6FF'; AccentInk = '#04121F'; AccentSoft = '#1E3448'
-               Ok = '#3CCF91'; OkSoft = '#173A2E'; Warn = '#F5B84A'; Danger = '#FF6B6B'; DangerSoft = '#3A1F24'; LogBg = '#0A0C10' }
-    Light = @{ Bg = '#F4F6FA'; Sidebar = '#FFFFFF'; Card = '#FFFFFF'; Raised = '#EEF1F6'; Line = '#E1E5EC'
-               Text = '#161A22'; Muted = '#677084'; Accent = '#0A78D1'; AccentInk = '#FFFFFF'; AccentSoft = '#E1EEFA'
-               Ok = '#12945F'; OkSoft = '#DDF2E8'; Warn = '#A86B00'; Danger = '#D33A3A'; DangerSoft = '#FBE6E6'; LogBg = '#0A0C10' }
+    Dark  = @{ WindowBg = '#202020'; Sidebar = '#00000000'; LayerFill = '#4C3A3A3A'; Card = '#0DFFFFFF'; Line = '#1F000000'
+               ControlFill = '#0FFFFFFF'; ControlHover = '#15FFFFFF'; ControlPressed = '#08FFFFFF'; ControlStroke = '#12FFFFFF'
+               InputActive = '#B31E1E1E'; SubtleHover = '#0FFFFFFF'; SubtleSelected = '#0BFFFFFF'; Raised = '#0FFFFFFF'
+               Text = '#FFFFFF'; Muted = '#C5FFFFFF'; Tertiary = '#87FFFFFF'
+               Ok = '#6CCB5F'; OkSoft = '#393D1B'; Warn = '#FCE100'; WarnSoft = '#433519'
+               Danger = '#FF99A4'; DangerSoft = '#442726'; DangerFill = '#C42B1C'
+               Smoke = '#4D000000'; DialogBg = '#2B2B2B'; DialogFooterBg = '#202020'; LogBg = '#0C0C0C' }
+    Light = @{ WindowBg = '#F3F3F3'; Sidebar = '#00000000'; LayerFill = '#80FFFFFF'; Card = '#B3FFFFFF'; Line = '#0F000000'
+               ControlFill = '#B3FFFFFF'; ControlHover = '#80F9F9F9'; ControlPressed = '#4DF9F9F9'; ControlStroke = '#1F000000'
+               InputActive = '#FFFFFF'; SubtleHover = '#09000000'; SubtleSelected = '#06000000'; Raised = '#0A000000'
+               Text = '#E4000000'; Muted = '#9E000000'; Tertiary = '#72000000'
+               Ok = '#0F7B0F'; OkSoft = '#DFF6DD'; Warn = '#9D5D00'; WarnSoft = '#FFF4CE'
+               Danger = '#C42B1C'; DangerSoft = '#FDE7E9'; DangerFill = '#C42B1C'
+               Smoke = '#4D000000'; DialogBg = '#FFFFFF'; DialogFooterBg = '#F3F3F3'; LogBg = '#0C0C0C' }
 }
 # The [Brush] cast matters: without it PowerShell stores its PSObject wrapper
 # in the resource dictionary, and WPF rejects that as a colour.
 $BrushConv = New-Object Windows.Media.BrushConverter
 function New-Brush([string]$hex) { return [Windows.Media.Brush]$BrushConv.ConvertFromString($hex) }
-
-$script:Theme = 'Dark'
-function Set-Theme([string]$name) {
-    foreach ($k in $Themes[$name].Keys) { $win.Resources[$k] = [Windows.Media.Brush](New-Brush $Themes[$name][$k]) }
-    $script:Theme = $name
-    $ui.BtnTheme.Content = $(if ($name -eq 'Dark') { 'Switch to light theme' } else { 'Switch to dark theme' })
-}
 
 # Windows' own "app mode" setting (Settings > Personalization > Colors).
 function Get-WindowsTheme {
@@ -84,31 +90,211 @@ function Get-WindowsTheme {
     return 'Dark'
 }
 
+# (Get-WindowsAccent, the accent colour chosen in Windows, is in AppIcon.ps1.)
+
+# Mixes two '#RRGGBB' colours: $t = 0 gives $a, 1 gives $b.
+function Get-MixedColor([string]$a, [string]$b, [double]$t) {
+    $out = '#'
+    foreach ($i in 1, 3, 5) {
+        $x = [Convert]::ToInt32($a.Substring($i, 2), 16); $y = [Convert]::ToInt32($b.Substring($i, 2), 16)
+        $out += '{0:X2}' -f [int][math]::Round($x + ($y - $x) * $t)
+    }
+    return $out
+}
+
+# The accent roles, like Windows derives them: a lighter tint in dark mode
+# (with black text on it), a darker shade in light mode (with white text).
+function Get-AccentRoles([string]$name) {
+    $acc = Get-WindowsAccent
+    if ($name -eq 'Dark') {
+        return @{ Accent = (Get-MixedColor $acc '#FFFFFF' 0.45); AccentHover = (Get-MixedColor $acc '#FFFFFF' 0.35)
+                  AccentInk = '#000000'; AccentSoft = '#33' + $acc.Substring(1) }
+    }
+    return @{ Accent = (Get-MixedColor $acc '#000000' 0.15); AccentHover = (Get-MixedColor $acc '#000000' 0.05)
+              AccentInk = '#FFFFFF'; AccentSoft = '#26' + $acc.Substring(1) }
+}
+
+# ------------------------------------------------------------------------------
+# Windows 11 window material: Mica behind the window and a title bar that
+# matches the theme, through dwmapi (compiled by .NET itself - nothing to
+# install). On Windows 10 the calls fail quietly and the plain colours stay.
+# ------------------------------------------------------------------------------
+if (-not ('WslPanel.Win32' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace WslPanel {
+    public static class Win32 {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MARGINS { public int Left; public int Right; public int Top; public int Bottom; }
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
+        [DllImport("user32.dll")]
+        public static extern int GetSystemMetrics(int index);
+    }
+}
+'@
+}
+$DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+$DWMWA_SYSTEMBACKDROP_TYPE = 38
+$script:Mica = $false
+$script:Hwnd = [IntPtr]::Zero
+
+function Set-TitleBarTheme {
+    if ($script:Hwnd -eq [IntPtr]::Zero) { return }
+    $dark = [int]($script:Theme -eq 'Dark')
+    try { [void][WslPanel.Win32]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$dark, 4) } catch { }
+}
+
+# Turns on Mica (Windows 11 22H2 and later). $true when it is on.
+function Enable-Mica {
+    try {
+        $script:Hwnd = (New-Object System.Windows.Interop.WindowInteropHelper($win)).EnsureHandle()
+        Set-TitleBarTheme
+        $mica = 2   # DWMSBT_MAINWINDOW
+        if ([WslPanel.Win32]::DwmSetWindowAttribute($script:Hwnd, $DWMWA_SYSTEMBACKDROP_TYPE, [ref]$mica, 4) -ne 0) { return $false }
+        $m = New-Object WslPanel.Win32+MARGINS
+        $m.Left = -1; $m.Right = -1; $m.Top = -1; $m.Bottom = -1
+        [void][WslPanel.Win32]::DwmExtendFrameIntoClientArea($script:Hwnd, [ref]$m)
+        [System.Windows.Interop.HwndSource]::FromHwnd($script:Hwnd).CompositionTarget.BackgroundColor = [Windows.Media.Colors]::Transparent
+        return $true
+    } catch { return $false }
+}
+
+# With Mica on, the window draws its own title area like Settings: the app
+# name sits in the Mica, and Windows still draws the caption buttons, the
+# snap layouts menu and the resize border.
+$script:Chrome = $false
+function Enable-TitleBar {
+    try {
+        $c = New-Object System.Windows.Shell.WindowChrome
+        $c.CaptionHeight = 40
+        $c.GlassFrameThickness = New-Object Windows.Thickness -ArgumentList (-1)
+        $c.ResizeBorderThickness = [Windows.SystemParameters]::WindowResizeBorderThickness
+        $c.UseAeroCaptionButtons = $true
+        $c.CornerRadius = New-Object Windows.CornerRadius 0
+        [System.Windows.Shell.WindowChrome]::SetWindowChrome($win, $c)
+        $ui.TitleBar.Visibility = 'Visible'
+        $ui.NavTitle.Visibility = 'Collapsed'
+        return $true
+    } catch { return $false }
+}
+# A maximised window reaches past the screen edges by its (invisible) frame;
+# move the content in by that much so nothing is cut off.
+function Update-MaximizedMargin {
+    if (-not $script:Chrome) { return }
+    if ($win.WindowState -ne 'Maximized') { $ui.RootGrid.Margin = New-Object Windows.Thickness 0; return }
+    $px = 8
+    try { $px = [WslPanel.Win32]::GetSystemMetrics(32) + [WslPanel.Win32]::GetSystemMetrics(92) } catch { }
+    $scale = 1.0
+    try { $scale = [Windows.Media.VisualTreeHelper]::GetDpi($win).DpiScaleX } catch { }
+    $ui.RootGrid.Margin = New-Object Windows.Thickness ($px / $scale)
+}
+$win.Add_StateChanged({ Update-MaximizedMargin })
+
+$script:Theme = 'Dark'
+function Set-Theme([string]$name) {
+    $script:Theme = $name
+    $roles = $Themes[$name].Clone()
+    $accent = Get-AccentRoles $name
+    foreach ($k in $accent.Keys) { $roles[$k] = $accent[$k] }
+    if ($script:Mica) { $roles.WindowBg = '#00000000' }   # let Mica show through
+    foreach ($k in $roles.Keys) { $win.Resources[$k] = [Windows.Media.Brush](New-Brush $roles[$k]) }
+    $ui.ThemeText.Text = $(if ($name -eq 'Dark') { 'Light theme' } else { 'Dark theme' })
+    Set-TitleBarTheme
+}
+
+# ------------------------------------------------------------------------------
+# Motion, with the timings of Windows 11 (WinUI): short and easing out. Off
+# when Windows' "Animation effects" setting is off.
+# ------------------------------------------------------------------------------
+$script:Motion = [bool][Windows.SystemParameters]::ClientAreaAnimation
+$EaseOut = New-Object Windows.Media.Animation.CubicEase
+$EaseOut.EasingMode = 'EaseOut'
+$EaseOut.Freeze()
+
+# Animates $prop of $target from $from to $to in $ms milliseconds (or jumps
+# straight to the end without motion).
+function Start-Motion($target, $prop, [double]$from, [double]$to, [int]$ms) {
+    if (-not $script:Motion) { $target.BeginAnimation($prop, $null); $target.SetValue($prop, $to); return }
+    $a = New-Object Windows.Media.Animation.DoubleAnimation -ArgumentList $from, $to, (New-Object Windows.Duration ([TimeSpan]::FromMilliseconds($ms)))
+    $a.EasingFunction = $EaseOut
+    $target.BeginAnimation($prop, $a)
+}
+$OPACITY = [Windows.UIElement]::OpacityProperty
+
+# The distro page slides up a little and fades in when you pick a distro.
+function Start-PageEntrance {
+    Start-Motion $ui.PageBody $OPACITY 0 1 250
+    Start-Motion $ui.PageShift ([Windows.Media.TranslateTransform]::YProperty) 16 0 300
+}
+
 # ------------------------------------------------------------------------------
 # Toast (quick results) and dialogs
 # ------------------------------------------------------------------------------
 $script:ToastTimer = New-Object Windows.Threading.DispatcherTimer
-$script:ToastTimer.Interval = [TimeSpan]::FromSeconds(5)
+$script:ToastTimer.Interval = [TimeSpan]::FromSeconds(8)
 $script:ToastTimer.Add_Tick({ $ui.Toast.Visibility = 'Collapsed'; $script:ToastTimer.Stop() })
 
-# A one-line result in the corner. $kind: 'Ok', 'Warn' or 'Error'.
+# A quick result as a Fluent InfoBar at the top of the page.
+# $kind: 'Ok' (success), 'Warn' or 'Error'.
 function Show-Toast([string]$msg, [string]$kind = 'Ok') {
     $ui.ToastText.Text = $msg
-    $key = @{ Ok = 'Ok'; Warn = 'Warn'; Error = 'Danger' }[$kind]
-    $ui.Toast.SetResourceReference([Windows.Controls.Border]::BorderBrushProperty, $key)
+    switch ($kind) {
+        'Warn' {
+            $ui.Toast.SetResourceReference([Windows.Controls.Border]::BackgroundProperty, 'WarnSoft')
+            $ui.ToastIconBg.Visibility = 'Collapsed'
+            $ui.ToastIcon.Text = [string][char]0xE7BA; $ui.ToastIcon.FontSize = 16
+            $ui.ToastIcon.SetResourceReference([Windows.Controls.TextBlock]::ForegroundProperty, 'Warn')
+        }
+        default {
+            $soft = $(if ($kind -eq 'Error') { 'DangerSoft' } else { 'OkSoft' })
+            $strong = $(if ($kind -eq 'Error') { 'Danger' } else { 'Ok' })
+            $ui.Toast.SetResourceReference([Windows.Controls.Border]::BackgroundProperty, $soft)
+            $ui.ToastIconBg.Visibility = 'Visible'
+            $ui.ToastIconBg.SetResourceReference([Windows.Shapes.Shape]::FillProperty, $strong)
+            $ui.ToastIcon.Text = $(if ($kind -eq 'Error') { [string][char]0xE711 } else { [string][char]0xE73E })
+            $ui.ToastIcon.FontSize = 10
+            $ui.ToastIcon.SetResourceReference([Windows.Controls.TextBlock]::ForegroundProperty, 'AccentInk')
+        }
+    }
     $ui.Toast.Visibility = 'Visible'
+    Start-Motion $ui.Toast $OPACITY 0 1 200
+    Start-Motion $ui.ToastShift ([Windows.Media.TranslateTransform]::YProperty) -12 0 250
     $script:ToastTimer.Stop(); $script:ToastTimer.Start()
 }
+$ui.ToastClose.Add_Click({ $ui.Toast.Visibility = 'Collapsed'; $script:ToastTimer.Stop() })
 
 $Panels = 'PanelMessage', 'PanelUser', 'PanelTask', 'PanelDelete', 'PanelPick', 'PanelDownload', 'PanelBackup',
           'PanelRestore', 'PanelLimits', 'PanelFolders'
+# The main button of each dialog, pressed by Enter.
+$DefaultButtons = @{ PanelMessage = 'MsgB1'; PanelUser = 'BtnUserOk'; PanelDelete = 'BtnDelOk'; PanelPick = 'PickB1'
+                     PanelDownload = 'BtnDlOk'; PanelBackup = 'BtnBakOk'; PanelRestore = 'BtnResOk'; PanelFolders = 'BtnFolClose' }
+$script:OpenPanel = ''
+$script:ClosedAt = [datetime]::MinValue
 function Open-Panel([string]$name, [int]$width = 520) {
     foreach ($p in $Panels) { $ui[$p].Visibility = 'Collapsed' }
     $ui[$name].Visibility = 'Visible'
     $ui.DialogCard.Width = $width
+    $script:OpenPanel = $name
+    $wasOpen = ($ui.Overlay.Visibility -eq 'Visible')
     $ui.Overlay.Visibility = 'Visible'
+    # Like a ContentDialog: the dimmed layer fades in and the dialog settles
+    # from slightly larger. One dialog straight after another only swaps.
+    if (-not $wasOpen -and ([datetime]::Now - $script:ClosedAt).TotalMilliseconds -gt 150) {
+        Start-Motion $ui.Overlay $OPACITY 0 1 167
+        Start-Motion $ui.DialogScale ([Windows.Media.ScaleTransform]::ScaleXProperty) 1.05 1 250
+        Start-Motion $ui.DialogScale ([Windows.Media.ScaleTransform]::ScaleYProperty) 1.05 1 250
+    }
+    Start-Motion $ui.DialogCard $OPACITY 0 1 167
 }
-function Close-Dialog { $ui.Overlay.Visibility = 'Collapsed' }
+function Close-Dialog {
+    $ui.Overlay.Visibility = 'Collapsed'
+    $script:OpenPanel = ''
+    $script:ClosedAt = [datetime]::Now
+}
 
 # A message with up to three buttons. Each button is @{ Text; Style; Do }:
 # Style is 'Primary', 'Btn' or 'DangerBtn'; Do is a scriptblock run after the
@@ -138,6 +324,10 @@ function Invoke-MsgButton([int]$i) {
     Close-Dialog
     if ($b -and $b.Do) { & $b.Do }
 }
+# Presses a button from code (keyboard shortcuts), as a click would.
+function Invoke-Button($b) {
+    if ($b -and $b.IsEnabled -and $b.IsVisible) { $b.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent))) }
+}
 function Show-Info([string]$title, [string]$text) { Show-Message $title $text @(@{ Text = 'OK' }) }
 
 # A failure, with the end of the last task's output so the reason is visible.
@@ -146,6 +336,14 @@ function Show-Failure([string]$title, [string]$text) {
     if ($tail.Count) { $text += "`n`nThe last lines of the output:`n" + ($tail -join "`n") }
     Show-Message $title $text @(@{ Text = 'OK' })
 }
+
+# Shows a file (selected) or a folder in File Explorer.
+function Open-InExplorer([string]$path) {
+    if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) { Start-Process explorer.exe -ArgumentList "/select,""$path""" }
+    elseif ($path -and (Test-Path -LiteralPath $path)) { Start-Process explorer.exe -ArgumentList """$path""" }
+    else { Show-Toast "That folder does not exist (any more): $path" 'Warn' }
+}
+$NO_FOLDER = 'No folder chosen yet'
 
 # Windows' folder / file pickers. $null when cancelled.
 function Select-Folder([string]$description, [string]$start) {
@@ -260,9 +458,12 @@ function Update-DistroList {
     $keep = $null
     if ($ui.DistroList.SelectedItem) { $keep = $ui.DistroList.SelectedItem.Name }
     if ($script:SelectNext) { $keep = $script:SelectNext; $script:SelectNext = $null }
-    $ui.DistroList.ItemsSource = $items
-    $pick = @($items | Where-Object { $_.Name -eq $keep }) | Select-Object -First 1
-    if ($pick) { $ui.DistroList.SelectedItem = $pick } elseif ($items.Count) { $ui.DistroList.SelectedIndex = 0 }
+    $script:Refreshing = $true   # a refresh re-selects without the page animation
+    try {
+        $ui.DistroList.ItemsSource = $items
+        $pick = @($items | Where-Object { $_.Name -eq $keep }) | Select-Object -First 1
+        if ($pick) { $ui.DistroList.SelectedItem = $pick } elseif ($items.Count) { $ui.DistroList.SelectedIndex = 0 }
+    } finally { $script:Refreshing = $false }
     $ui.NoDistros.Visibility = $(if ($items.Count) { 'Collapsed' } else { 'Visible' })
     $ui.BtnQuickOpen.IsEnabled = ($items.Count -gt 0)
     if ($hidden.Count) {
@@ -281,7 +482,19 @@ function Get-CurrentDistro {
 $OPEN_MYSELF = 'Type my login myself'
 function Show-DistroPage {
     $d = Get-CurrentDistro
-    if (-not $d) { $ui.DistroPage.Visibility = 'Collapsed'; $ui.EmptyPage.Visibility = 'Visible'; return }
+    if (-not $d) {
+        $ui.DistroPage.Visibility = 'Collapsed'; $ui.EmptyPage.Visibility = 'Visible'
+        if ($script:Distros.Count) {
+            $ui.EmptyTitle.Text = 'Pick a distro'
+            $ui.EmptyText.Text = 'Choose one on the left to open it or change its settings.'
+            $ui.BtnEmptyDownload.Visibility = 'Collapsed'
+        } else {
+            $ui.EmptyTitle.Text = 'No Linux distros yet'
+            $ui.EmptyText.Text = "Download one from Microsoft's official list - Ubuntu is a good first choice. It takes a few minutes."
+            $ui.BtnEmptyDownload.Visibility = 'Visible'
+        }
+        return
+    }
     $ui.DistroPage.Visibility = 'Visible'; $ui.EmptyPage.Visibility = 'Collapsed'
     $running = ($d.State -eq 'Running')
     $ui.HeroInitial.Text = $d.Name.Substring(0, 1).ToUpper()
@@ -292,7 +505,11 @@ function Show-DistroPage {
     $ui.StateDot.SetResourceReference([Windows.Shapes.Shape]::FillProperty, $(if ($running) { 'Ok' } else { 'Muted' }))
     $ui.HeroMeta.Text = "WSL $($d.Version)" + $(if ($d.IsDefault) { " $MIDDOT default distro" } else { '' })
     $ui.BtnClose.Visibility = $(if ($running) { 'Visible' } else { 'Collapsed' })
-    $ui.StatDisk.Text = ('{0:N1} GB' -f [double](Get-DistroVhdInfo $d.Name).SizeGB)
+    $vhd = Get-DistroVhdInfo $d.Name
+    $ui.StatDisk.Text = ('{0:N1} GB' -f [double]$vhd.SizeGB)
+    $script:DiskFile = $(if ($vhd.Exists) { $vhd.VhdxPath } else { $vhd.BasePath })
+    $ui.DiskPath.Text = $(if ($vhd.BasePath) { $vhd.BasePath } else { 'Location not found' })
+    $ui.DiskPath.ToolTip = $ui.DiskPath.Text
     $port = Get-DistroPort $d.Name
     $ui.StatPort.Text = [string]$port
     $ui.PortBox.Text = [string]$port
@@ -303,7 +520,76 @@ function Show-DistroPage {
     # "Open as": the saved logins, or none (you type your login yourself).
     $ui.OpenAsList.ItemsSource = @(@($accounts | ForEach-Object { $_.Username }) + $OPEN_MYSELF)
     $ui.OpenAsList.SelectedIndex = 0
+    Update-LiveStatus
 }
+
+# ------------------------------------------------------------------------------
+# Live status tiles: the distro's disk and the memory of the WSL VM. Only cheap
+# reads (a file size, the free space, one process), so a timer can refresh them
+# every few seconds without ever calling wsl.exe.
+# ------------------------------------------------------------------------------
+$script:TotalRamGB = 0
+# (Read directly from Windows: a WMI query can take many seconds on a cold start.)
+try { Add-Type -AssemblyName Microsoft.VisualBasic; $script:TotalRamGB = [double](New-Object Microsoft.VisualBasic.Devices.ComputerInfo).TotalPhysicalMemory / 1GB } catch { }
+
+# How much memory WSL may use: memory= in .wslconfig, else WSL's default
+# (half of the PC's memory). 0 when unknown.
+function Get-WslMemoryLimitGB {
+    try {
+        $path = Get-WslConfigPath
+        if (Test-Path -LiteralPath $path) {
+            foreach ($line in Get-Content -LiteralPath $path) {
+                if ($line -match '^\s*memory\s*=\s*([\d.]+)\s*(GB|MB|G|M)?\s*$') {
+                    $n = [double]$Matches[1]
+                    if ($Matches[2] -match '^M') { return $n / 1024 }
+                    return $n
+                }
+            }
+        }
+    } catch { }
+    return ($script:TotalRamGB / 2)
+}
+
+$script:VmWasUp = $false
+function Update-LiveStatus {
+    $d = Get-CurrentDistro
+    if (-not $d -or $ui.DistroPage.Visibility -ne 'Visible') { return }
+    $vhd = Get-DistroVhdInfo $d.Name
+    $ui.LiveDisk.Text = '{0:N1} GB' -f [double]$vhd.SizeGB
+    $ui.LiveDiskBar.Value = 0
+    $ui.LiveDiskNote.Text = 'Its disk file was not found'
+    if ($vhd.Exists) {
+        try {
+            $drive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($vhd.VhdxPath))
+            $free = $drive.AvailableFreeSpace / 1GB; $total = $drive.TotalSize / 1GB
+            $ui.LiveDiskNote.Text = '{0} {1:N0} GB free of {2:N0} GB' -f $drive.Name.TrimEnd('\'), $free, $total
+            if ($total -gt 0) { $ui.LiveDiskBar.Value = 100 * ($total - $free) / $total }
+        } catch { }
+    }
+
+    $vm = @(Get-Process -Name VmmemWSL -ErrorAction SilentlyContinue)
+    if ($vm.Count) {
+        $used = ($vm | Measure-Object -Property WorkingSet64 -Sum).Sum / 1GB
+        $limit = Get-WslMemoryLimitGB
+        $ui.LiveMem.Text = '{0:N1} GB' -f $used
+        $ui.LiveMemNote.Text = $(if ($limit -gt 0) { 'In use, of the {0:N1} GB WSL may use' -f $limit } else { 'In use' })
+        $ui.LiveMemBar.Value = $(if ($limit -gt 0) { [math]::Min(100, 100 * $used / $limit) } else { 0 })
+        $script:VmWasUp = $true
+    } else {
+        $ui.LiveMem.Text = '0 GB'
+        $ui.LiveMemNote.Text = 'WSL is not running'
+        $ui.LiveMemBar.Value = 0
+        # WSL stopped by itself (idle timeout, or closed elsewhere): show that.
+        if ($script:VmWasUp) {
+            $script:VmWasUp = $false
+            if (@($script:Distros | Where-Object { $_.State -eq 'Running' }).Count) { Update-DistroList }
+        }
+    }
+}
+
+$script:LiveTimer = New-Object Windows.Threading.DispatcherTimer
+$script:LiveTimer.Interval = [TimeSpan]::FromSeconds(5)
+$script:LiveTimer.Add_Tick({ if (-not $script:TaskHandle -and $win.IsActive) { Update-LiveStatus } })
 
 # The saved login chosen under "Open as" ('' = none).
 function Get-OpenAsAccount {
@@ -580,7 +866,8 @@ function Start-Compact([bool]$sparse) {
     }
 }
 
-$ui.DistroList.Add_SelectionChanged({ Show-DistroPage })
+$ui.DistroList.Add_SelectionChanged({ Show-DistroPage; if (-not $script:Refreshing) { Start-PageEntrance } })
+$ui.BtnEmptyDownload.Add_Click({ Invoke-Button $ui.BtnDownload })
 $ui.BtnDesktop.Add_Click({ Start-OpenCurrent 'Desktop' })
 $ui.BtnTerminal.Add_Click({ Start-OpenCurrent 'Terminal' })
 $ui.BtnQuickOpen.Add_Click({
@@ -639,6 +926,7 @@ $ui.BtnSystemd.Add_Click({
     }
 })
 $ui.BtnCompact.Add_Click({ Show-CompactDialog (Get-CurrentDistro).Name })
+$ui.BtnOpenDiskFolder.Add_Click({ Open-InExplorer $script:DiskFile })
 $ui.BtnDelete.Add_Click({
     $d = (Get-CurrentDistro).Name
     $script:DelDistro = $d
@@ -697,20 +985,27 @@ $ui.BtnDownload.Add_Click({
         param($r)
         $ui.OnlineList.ItemsSource = @($r.Rows)
         $ui.DlName.Text = ''
-        $script:DlBase = $Global:Config.WslBase
-        $ui.DlFolder.Text = $script:DlBase
-        $ui.BtnDlOk.IsEnabled = $false
+        $script:DlBase = ''
+        Update-DownloadForm
         Open-Panel 'PanelDownload' 580
     }
 })
+# The folder is never filled in for you: Download stays off until you choose one.
+function Update-DownloadForm {
+    $name = $ui.DlName.Text.Trim()
+    $ui.DlFolder.Text = $(if (-not $script:DlBase) { $NO_FOLDER } elseif ($name) { Join-Path $script:DlBase $name } else { $script:DlBase })
+    $ui.BtnDlOk.IsEnabled = [bool]((Test-DistroName $name) -and $script:DlBase)
+}
 $ui.OnlineList.Add_SelectionChanged({ if ($ui.OnlineList.SelectedItem) { $ui.DlName.Text = $ui.OnlineList.SelectedItem.Name } })
-$ui.DlName.Add_TextChanged({ $ui.BtnDlOk.IsEnabled = (Test-DistroName $ui.DlName.Text.Trim()) })
+$ui.DlName.Add_TextChanged({ Update-DownloadForm })
 $ui.BtnDlFolder.Add_Click({
-    $f = Select-Folder 'Where should the new distro be installed? (its own sub-folder is created inside)' $script:DlBase
-    if ($f) { $script:DlBase = $f; $ui.DlFolder.Text = $f }
+    $f = Select-Folder 'Where should the new distro be stored? (a folder named after it is created inside)' $Global:Config.WslBase
+    if ($f) { $script:DlBase = $f; Update-DownloadForm }
 })
 $ui.BtnDlCancel.Add_Click({ Close-Dialog })
 $ui.BtnDlOk.Add_Click({
+    $problem = Set-DataFolder 'WslBase' $script:DlBase   # remembered as the picker's start next time
+    if ($problem) { Show-Toast $problem 'Error'; return }
     $script:Dl = @{ Name = $ui.DlName.Text.Trim(); Base = $script:DlBase }
     Start-Task "Downloading $($script:Dl.Name)" { Install-WslDistro $A.Name $A.Base } $script:Dl.Clone() {
         param($r)
@@ -749,16 +1044,21 @@ $ui.BtnBackup.Add_Click({
     $ui.BakList.ItemsSource = @($script:Distros | ForEach-Object { $_.Name })
     $cur = Get-CurrentDistro
     if ($cur) { $ui.BakList.SelectedItem = $cur.Name }
-    $script:BakDir = $Global:Config.BackupBase
-    $ui.BakFolder.Text = $script:BakDir
+    $script:BakDir = ''
     $ui.BakTar.IsChecked = $true
-    $ui.BtnBakOk.IsEnabled = ($null -ne $ui.BakList.SelectedItem)
+    Update-BackupForm
     Open-Panel 'PanelBackup' 560
 })
-$ui.BakList.Add_SelectionChanged({ $ui.BtnBakOk.IsEnabled = ($null -ne $ui.BakList.SelectedItem) })
-$ui.BtnBakFolder.Add_Click({ $f = Select-Folder 'Where should the backup be saved?' $script:BakDir; if ($f) { $script:BakDir = $f; $ui.BakFolder.Text = $f } })
+function Update-BackupForm {
+    $ui.BakFolder.Text = $(if ($script:BakDir) { $script:BakDir } else { $NO_FOLDER })
+    $ui.BtnBakOk.IsEnabled = [bool](($null -ne $ui.BakList.SelectedItem) -and $script:BakDir)
+}
+$ui.BakList.Add_SelectionChanged({ Update-BackupForm })
+$ui.BtnBakFolder.Add_Click({ $f = Select-Folder 'Where should the backup be saved?' $Global:Config.BackupBase; if ($f) { $script:BakDir = $f; Update-BackupForm } })
 $ui.BtnBakCancel.Add_Click({ Close-Dialog })
 $ui.BtnBakOk.Add_Click({
+    $problem = Set-DataFolder 'BackupBase' $script:BakDir   # Restore lists the backups found there
+    if ($problem) { Show-Toast $problem 'Error'; return }
     $A = @{ Name = [string]$ui.BakList.SelectedItem; Dir = $script:BakDir; Ext = $(if ($ui.BakVhdx.IsChecked) { 'vhdx' } else { 'tar' }) }
     Start-Task "Backing up $($A.Name)" { Export-WslDistro $A.Name $A.Dir $A.Ext } $A {
         param($r)
@@ -773,20 +1073,27 @@ $ui.BtnBakOk.Add_Click({
     }
 })
 
-$script:ResFiles = @(); $script:ResPick = $null; $script:ResLocAuto = $true
+$script:ResFiles = @(); $script:ResPick = $null; $script:ResBase = ''
 $ui.BtnRestore.Add_Click({
     $script:ResFiles = @(Get-BackupFiles)
-    $ui.ResHint.Text = $(if ($script:ResFiles.Count) { "Backups found in $($Global:Config.BackupBase) (newest first):" } else { "No backups in $($Global:Config.BackupBase) - browse for a file instead." })
+    $ui.ResHint.Text = $(if ($script:ResFiles.Count) { "Backups in $($Global:Config.BackupBase) (the folder of your last backup), newest first:" }
+                         else { 'Browse for the backup file (.tar or .vhdx) to restore.' })
     $ui.ResList.ItemsSource = @($script:ResFiles | ForEach-Object { '{0}   ({1} GB)' -f $_.Name, [math]::Round($_.Length / 1GB, 2) })
-    $script:ResPick = $null; $script:ResLocAuto = $true
-    $ui.ResFile.Text = ''; $ui.ResName.Text = ''; $ui.ResFolder.Text = ''
-    $ui.BtnResOk.IsEnabled = $false
+    $script:ResPick = $null; $script:ResBase = ''
+    $ui.ResFile.Text = ''; $ui.ResName.Text = ''
+    Update-RestoreForm
     Open-Panel 'PanelRestore' 600
 })
+function Update-RestoreForm {
+    $name = $ui.ResName.Text.Trim()
+    $ui.ResFolder.Text = $(if (-not $script:ResBase) { $NO_FOLDER } elseif ($name) { Join-Path $script:ResBase $name } else { $script:ResBase })
+    $ui.BtnResOk.IsEnabled = [bool]($script:ResPick -and $name -and $script:ResBase)
+}
 function Set-RestoreFile([string]$path) {
     $script:ResPick = $path
     $ui.ResFile.Text = $path
     $ui.ResName.Text = Get-BackupDistroName $path
+    Update-RestoreForm
 }
 $ui.ResList.Add_SelectionChanged({ if ($ui.ResList.SelectedIndex -ge 0) { Set-RestoreFile $script:ResFiles[$ui.ResList.SelectedIndex].FullName } })
 $ui.BtnResBrowse.Add_Click({
@@ -795,18 +1102,16 @@ $ui.BtnResBrowse.Add_Click({
     $d.Title = 'Pick a backup to restore'
     if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $ui.ResList.SelectedIndex = -1; Set-RestoreFile $d.FileName }
 })
-$ui.ResName.Add_TextChanged({
-    if ($script:ResLocAuto -and $ui.ResName.Text) { $ui.ResFolder.Text = Join-Path $Global:Config.WslBase $ui.ResName.Text.Trim() }
-    $ui.BtnResOk.IsEnabled = [bool]($script:ResPick -and $ui.ResName.Text.Trim())
-})
+$ui.ResName.Add_TextChanged({ Update-RestoreForm })
 $ui.BtnResFolder.Add_Click({
-    $f = Select-Folder 'Where should the restored distro be installed?' $Global:Config.WslBase
-    if ($f) { $script:ResLocAuto = $false; $ui.ResFolder.Text = $f }
+    $f = Select-Folder 'Where should the restored distro be stored? (a folder named after it is created inside)' $Global:Config.WslBase
+    if ($f) { $script:ResBase = $f; Update-RestoreForm }
 })
 $ui.BtnResCancel.Add_Click({ Close-Dialog })
 $ui.BtnResOk.Add_Click({
-    $A = @{ File = $script:ResPick; Name = $ui.ResName.Text.Trim(); Loc = $ui.ResFolder.Text }
+    $A = @{ File = $script:ResPick; Name = $ui.ResName.Text.Trim(); Loc = (Join-Path $script:ResBase $ui.ResName.Text.Trim()) }
     $problem = Get-RestoreProblem $A.File $A.Name $A.Loc
+    if (-not $problem) { $problem = Set-DataFolder 'WslBase' $script:ResBase }
     if ($problem) { Show-Toast $problem 'Error'; return }
     $script:SelectNext = $A.Name
     Start-Task "Restoring $($A.Name)" { Import-WslDistro $A.File $A.Name $A.Loc } $A {
@@ -878,25 +1183,26 @@ $ui.BtnLimCustom.Add_Click({
 $ui.BtnLimReset.Add_Click({ Set-Limits $null $null $null })
 $ui.BtnLimClose.Add_Click({ Close-Dialog })
 
-# Data folders
+# Storage locations: where every distro, the last backups and the settings are
 function Show-FoldersPanel {
-    $ui.FolConfig.Text = "Settings + saved logins: $CONFIG_FOLDER (always next to the panel - the encrypted passwords belong to this Windows login)"
-    $ui.FolLinux.Text = $Global:Config.WslBase
-    $ui.FolBackup.Text = $Global:Config.BackupBase
+    $rows = @(foreach ($d in $script:Distros) {
+        $vhd = Get-DistroVhdInfo $d.Name
+        [pscustomobject]@{ Name = '{0}   ({1:N1} GB)' -f $d.Name, [double]$vhd.SizeGB; Path = $(if ($vhd.BasePath) { $vhd.BasePath } else { 'Location not found' }) }
+    })
+    $ui.FolDistros.ItemsSource = $rows
+    $ui.FolNoDistros.Visibility = $(if ($rows.Count) { 'Collapsed' } else { 'Visible' })
+    $ui.FolBackup.Text = $(if ($Global:Config.BackupBase) { $Global:Config.BackupBase } else { 'No backup made yet' })
+    $ui.BtnFolBackup.IsEnabled = [bool]$Global:Config.BackupBase
+    $ui.FolConfig.Text = $CONFIG_FOLDER
     Open-Panel 'PanelFolders' 640
 }
-function Set-Folder([string]$which, [string]$what) {
-    $f = Select-Folder "Where should $what be saved?" $Global:Config.$which
-    if (-not $f) { return }
-    $problem = Set-DataFolder $which $f
-    if ($problem) { Show-Toast $problem 'Error'; return }
-    Show-FoldersPanel
-    Show-Toast 'Saved.'
-}
 $ui.BtnFolders.Add_Click({ Show-FoldersPanel })
-$ui.BtnFolLinux.Add_Click({ Set-Folder 'WslBase' 'new Linux disks' })
-$ui.BtnFolBackup.Add_Click({ Set-Folder 'BackupBase' 'new backups' })
-$ui.BtnFolDefaults.Add_Click({ Reset-DataFolders; Show-FoldersPanel; Show-Toast 'Back to the default folders.' })
+$ui.FolDistros.AddHandler([Windows.Controls.Button]::ClickEvent, [Windows.RoutedEventHandler]{
+    param($s, $e)
+    Open-InExplorer ([string]$e.OriginalSource.Tag)
+})
+$ui.BtnFolBackup.Add_Click({ Open-InExplorer $Global:Config.BackupBase })
+$ui.BtnFolConfig.Add_Click({ Open-InExplorer $CONFIG_FOLDER })
 $ui.BtnFolClose.Add_Click({ Close-Dialog })
 
 $ui.BtnUpdate.Add_Click({
@@ -914,7 +1220,26 @@ $ui.BtnTheme.Add_Click({ Set-Theme $(if ($script:Theme -eq 'Dark') { 'Light' } e
 
 # Esc / a click beside a dialog closes it - but never while a task runs.
 $ui.Overlay.Add_MouseLeftButtonDown({ param($s, $e) if ($e.OriginalSource -eq $ui.Overlay -and -not $script:TaskHandle) { Close-Dialog } })
-$win.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape' -and -not $script:TaskHandle -and $ui.Overlay.Visibility -eq 'Visible') { Close-Dialog } })
+# Keyboard: Esc closes a dialog, Enter presses its main button, F5 refreshes,
+# Ctrl+1 to Ctrl+9 pick a distro.
+$win.Add_KeyDown({
+    param($s, $e)
+    if ($script:TaskHandle) { return }
+    $dialog = ($ui.Overlay.Visibility -eq 'Visible')
+    $ctrl = ([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -ne 0
+    if ($dialog) {
+        if ($e.Key -eq 'Escape') { Close-Dialog; $e.Handled = $true }
+        elseif ($e.Key -eq 'Return' -and $DefaultButtons.ContainsKey($script:OpenPanel)) {
+            Invoke-Button $ui[$DefaultButtons[$script:OpenPanel]]; $e.Handled = $true
+        }
+    } elseif ($e.Key -eq 'F5') {
+        Update-DistroList; $e.Handled = $true
+    } elseif ($ctrl -and $e.Key -ge [Windows.Input.Key]::D1 -and $e.Key -le [Windows.Input.Key]::D9) {
+        $i = [int]$e.Key - [int][Windows.Input.Key]::D1
+        if ($i -lt $ui.DistroList.Items.Count) { $ui.DistroList.SelectedIndex = $i; [void]$ui.DistroList.Focus() }
+        $e.Handled = $true
+    }
+})
 $win.Add_Closing({ param($s, $e) if ($script:TaskHandle) { $e.Cancel = $true; Show-Toast 'Please wait - a task is still running.' 'Warn' } })
 
 # Anything unexpected inside a click is shown instead of closing the window.
@@ -952,7 +1277,14 @@ function Show-FirstRun {
 # ------------------------------------------------------------------------------
 # Start
 # ------------------------------------------------------------------------------
-Set-Theme (Get-WindowsTheme)
+$script:Theme = Get-WindowsTheme
+$script:Mica = Enable-Mica
+if ($script:Mica) { $script:Chrome = Enable-TitleBar }
+Set-Theme $script:Theme
+$appIcon = New-AppIconBitmap 64 (Get-WindowsAccent)
+$win.Icon = $appIcon
+$ui.AppIcon.Source = $appIcon
+$ui.TitleIcon.Source = $appIcon
 Initialize-Worker
 Update-DistroList
 
@@ -968,11 +1300,21 @@ if ($Validate) {
     [void]$ps.AddScript('Test-LinuxUserName ''alex''')
     $ok = $ps.Invoke()
     if (-not $ok -or -not $ok[0]) { throw 'The background worker did not load the engine.' }
-    "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found."
+    Show-Toast 'Test' 'Ok'; Show-Toast 'Test' 'Warn'; Show-Toast 'Test' 'Error'
+    # Motion, keyboard and live status.
+    $script:Motion = $true; Start-PageEntrance; Close-Dialog; $script:ClosedAt = [datetime]::MinValue; Open-Panel 'PanelMessage'
+    $script:Motion = $false; Start-PageEntrance; Close-Dialog
+    foreach ($k in $DefaultButtons.Keys) { if (-not $ui[$DefaultButtons[$k]]) { throw "No main button for $k" } }
+    Update-LiveStatus; [void](Get-WslMemoryLimitGB)
+    Update-DownloadForm; Update-BackupForm; Update-RestoreForm
+    if ($ui.BtnDlOk.IsEnabled -or $ui.BtnBakOk.IsEnabled -or $ui.BtnResOk.IsEnabled) { throw 'A save button is on before a folder was chosen.' }
+    $win.WindowState = 'Maximized'; Update-MaximizedMargin; $win.WindowState = 'Normal'
+    "Window built: $($ui.Count) named elements, $($Panels.Count) dialogs, worker OK, $($script:Distros.Count) distros found, Mica: $($script:Mica), title bar: $($script:Chrome), accent: $(Get-WindowsAccent), RAM: $([math]::Round($script:TotalRamGB, 1)) GB"
     exit 0
 }
 
 $win.Add_ContentRendered({
+    $script:LiveTimer.Start()
     Unblock-PanelFiles
     if ((Get-WslState) -ne 'Ready') { Show-FirstRun }
 })

@@ -4,3 +4,7 @@ data/
 
 # Scratch temp files
 *.tmp
+
+# Built on your PC by install.ps1
+WSL Control Panel.exe
+launcher/app.ico

@@ -40,7 +40,7 @@ jobs:
         shell: powershell
         run: |
           $bad = 0
-          foreach ($f in Get-ChildItem powershell -Recurse -Filter *.ps1) {
+          foreach ($f in @(Get-ChildItem powershell, launcher -Recurse -Filter *.ps1) + @(Get-Item install.ps1)) {
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
             $rel = Resolve-Path -Relative $f.FullName
@@ -55,7 +55,7 @@ jobs:
         shell: powershell
         run: |
           $bad = 0
-          foreach ($f in Get-ChildItem powershell -Recurse -Filter *.ps1) {
+          foreach ($f in @(Get-ChildItem powershell, launcher -Recurse -Include *.ps1, *.cs, *.xaml) + @(Get-Item install.ps1)) {
             $lines = [IO.File]::ReadAllLines($f.FullName)
             $rel = Resolve-Path -Relative $f.FullName
             for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -69,10 +69,12 @@ jobs:
       - name: Launcher keeps CRLF line endings
         shell: powershell
         run: |
-          $text = [IO.File]::ReadAllText((Resolve-Path WSL-Control-Panel.bat).Path)
-          if ($text -match "(^|[^`r])`n") {
-            Write-Host '::error file=WSL-Control-Panel.bat::Has LF-only line endings; it must be CRLF.'
-            exit 1
+          foreach ($bat in 'WSL-Control-Panel.bat', 'Install.bat') {
+            $text = [IO.File]::ReadAllText((Resolve-Path $bat).Path)
+            if ($text -match "(^|[^`r])`n") {
+              Write-Host "::error file=$bat::Has LF-only line endings; it must be CRLF."
+              exit 1
+            }
           }
           'CRLF OK'
 
@@ -83,6 +85,32 @@ jobs:
         run: |
           powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File powershell/WSL-Control-Panel.ps1 -Validate
           if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # The installer from this checkout: builds "WSL Control Panel.exe" with the
+      # C# compiler that comes with Windows, an update keeps the data folder,
+      # and the exe itself builds the window (no PowerShell window involved).
+      - name: Installer and app
+        shell: powershell
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'WSL Control Panel'
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File install.ps1 -From . -InstallDir $dir -NoShortcuts -NoLaunch
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $exe = Join-Path $dir 'WSL Control Panel.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { Write-Host '::error::The app was not built.'; exit 1 }
+          if (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WSLControlPanel')) { Write-Host '::error::No Settings > Apps entry.'; exit 1 }
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $dir 'data\config') | Out-Null
+          Set-Content -LiteralPath (Join-Path $dir 'data\config\keep.txt') -Value 'x'
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File install.ps1 -From . -InstallDir $dir -NoShortcuts -NoLaunch
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'data\config\keep.txt'))) { Write-Host '::error::An update deleted the data folder.'; exit 1 }
+
+          $p = Start-Process -FilePath $exe -ArgumentList '--validate' -Wait -PassThru `
+                 -RedirectStandardOutput app-out.txt -RedirectStandardError app-err.txt
+          Get-Content app-out.txt, app-err.txt
+          if ($p.ExitCode -ne 0) { Write-Host "::error::The app exited with $($p.ExitCode)."; exit 1 }
+          if (-not (Select-String -Path app-out.txt -Pattern 'Window built' -Quiet)) { Write-Host '::error::The app did not build the window.'; exit 1 }
+          (Get-Item -LiteralPath $exe).VersionInfo | Format-List FileDescription, ProductName
 
       # Report only: style findings are worth reading but do not fail the build.
       - name: PSScriptAnalyzer (report only)
