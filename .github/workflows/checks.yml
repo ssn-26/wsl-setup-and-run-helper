@@ -98,6 +98,10 @@ jobs:
           $exe = Join-Path $dir 'WSL Control Panel.exe'
           if (-not (Test-Path -LiteralPath $exe)) { Write-Host '::error::The app was not built.'; exit 1 }
           if (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WSLControlPanel')) { Write-Host '::error::No Settings > Apps entry.'; exit 1 }
+          # Only what the app needs is installed.
+          $installed = @(Get-ChildItem -LiteralPath $dir -Name | Where-Object { $_ -ne 'data' } | Sort-Object)
+          "Installed: $($installed -join ', ')"
+          if (($installed -join ',') -ne 'bash,install.ps1,powershell,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the install folder.'; exit 1 }
 
           New-Item -ItemType Directory -Force -Path (Join-Path $dir 'data\config') | Out-Null
           Set-Content -LiteralPath (Join-Path $dir 'data\config\keep.txt') -Value 'x'
