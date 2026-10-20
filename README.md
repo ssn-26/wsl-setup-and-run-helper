@@ -189,6 +189,7 @@ working (saved passwords only decrypt on the same Windows login, though).
 | Remote Desktop is black **and XFCE's panel/dock appears on the Windows desktop** | WSL links **WSLg** (its bridge that shows Linux windows on Windows) into every user's runtime folder, and XFCE's toolkit prefers it over xrdp's screen | Fixed in the current panel: the session files force X11. For a desktop set up with an older panel, re-add the account with Accounts, `[A]`, **Y** (this rewrites the session files), log out of the old session, and open the Desktop again |
 | Remote Desktop window is black (nothing on the Windows desktop either) | The XFCE session didn't start for that user | Log in with a user made through `[A]` → **Y** (it sets up the XFCE session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` end with `exec startxfce4` |
 | Desktop closes a few seconds after opening | WSL idle shutdown | Open it through the panel. Its keep-alive holds WSL up while XFCE runs |
+| *"Failed to attach disk ... ext4.vhdx ... ERROR_SHARING_VIOLATION"* | Another program has the distro's disk file open: a stuck WSL, a copy or backup of `data\linux` still running, the `.vhdx` double-clicked (Windows mounted it), or antivirus | The panel now catches this before opening and offers **[S]** Shut down WSL and try again, or **[D]** Detach the disk from Windows. Still stuck? Restart Windows |
 | WSL itself won't start | Outdated or broken WSL | `[U]` Update / repair WSL, then restart Windows |
 
 ---

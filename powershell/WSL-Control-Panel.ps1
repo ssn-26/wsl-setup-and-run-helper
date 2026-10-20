@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in every header, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '1.3.0'
+$PANEL_VERSION = '1.3.1'
 
 # WSL_UTF8=1 makes wsl.exe print UTF-8 instead of UTF-16 (children inherit it).
 $env:WSL_UTF8 = '1'
@@ -895,8 +895,63 @@ function Test-XrdpListening([string]$distro, [int]$port) {
     return ((Invoke-WslQuiet @('-d', $distro, '-u', 'root', '-e', 'sh', '-c', $cmd)).ExitCode -eq 0)
 }
 
+# Starts the distro quietly. Returns $null when it is up, or WSL's own error
+# text when it cannot start.
+function Get-DistroStartError([string]$distro) {
+    $res = Invoke-WslQuiet @('-d', $distro, '-u', 'root', '-e', 'true')
+    if ($res.ExitCode -eq 0) { return $null }
+    $msg = (@($res.Output) + @(([string]$res.StdError) -split "`r?`n") | Where-Object { $_ -and $_.Trim() }) -join ' '
+    if (-not $msg) { $msg = "wsl.exe stopped with exit code $($res.ExitCode)." }
+    return $msg
+}
+
+# Checks the distro can start BEFORE a Terminal or Desktop opens, so a WSL
+# failure is explained here instead of in a window that closes, or mistaken
+# for "no desktop installed" / "user does not exist". Offers the usual fixes.
+# Returns $true when the distro is up.
+function Confirm-DistroStarts([string]$distro) {
+    $err = Get-DistroStartError $distro
+    while ($err) {
+        Write-Host ''
+        Write-Host " $distro could not start. WSL says:" -ForegroundColor $UI.Error
+        Write-Host "   $err" -ForegroundColor $UI.Hint
+        Write-Host ''
+        $locked = ($err -match 'SHARING_VIOLATION|being used by another process')
+        if ($locked) {
+            Write-Host ' Another program has its disk file (ext4.vhdx) open, so WSL cannot use it.' -ForegroundColor $UI.Warn
+            Write-Host ' Usually: WSL got stuck, a copy or backup of that file is still running, the' -ForegroundColor $UI.Hint
+            Write-Host ' file was double-clicked (Windows mounted it), or antivirus is scanning it.' -ForegroundColor $UI.Hint
+            Write-Host ''
+        }
+        Write-MenuItem 'S' 'Shut down WSL and try again' 'fixes a stuck WSL (closes all running distros)'
+        if ($locked) { Write-MenuItem 'D' 'Detach the disk from Windows and try again' 'if Windows mounted it (admin)' }
+        Write-MenuItem 'B' 'Back'
+        $c = (Read-Line ' Enter your choice [S]').ToUpper()
+        if ($c -eq '' -or $c -eq 'S') {
+            Write-Host ' Shutting WSL down ...' -ForegroundColor $UI.Info
+            Stop-KexAll
+            Invoke-WslQuiet @('--shutdown') | Out-Null
+            Start-Sleep -Seconds 3
+        } elseif ($c -eq 'D' -and $locked) {
+            $vhd = Get-DistroVhdInfo $distro
+            $p = $vhd.VhdxPath -replace "'", "''"
+            if (-not (Invoke-ElevatedScript "try { Dismount-DiskImage -ImagePath '$p' -ErrorAction Stop | Out-Null } catch { }")) {
+                Write-Host ' The administrator prompt was declined.' -ForegroundColor $UI.Error
+                continue
+            }
+        } else {
+            return $false
+        }
+        Write-Host " Starting $distro again ..." -ForegroundColor $UI.Info
+        $err = Get-DistroStartError $distro
+        if (-not $err) { Write-Host " $distro is running now." -ForegroundColor $UI.Ok }
+    }
+    return $true
+}
+
 function Start-DistroDesktop([string]$distro, $account, [bool]$afterInstall = $false) {
     Show-Header "Opening Desktop for $distro"
+    if (-not (Confirm-DistroStarts $distro)) { return }
     if (-not (Confirm-AccountExists $distro $account)) { return }
     # Nothing saved and the distro only has root: make the user now, then carry
     # straight on opening the desktop with it.
@@ -1146,7 +1201,7 @@ function Show-OpenMenu([string]$distro) {
     $m = (Read-Line ' Enter your choice [1]').ToUpper()
     if ($m -eq '' -or $m -eq '1') { Start-DistroDesktop $distro $account }
     elseif ($m -eq '2') {
-        if (Confirm-AccountExists $distro $account) { Start-DistroTerminal $distro $account }
+        if ((Confirm-DistroStarts $distro) -and (Confirm-AccountExists $distro $account)) { Start-DistroTerminal $distro $account }
     }
 }
 
