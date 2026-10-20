@@ -37,9 +37,13 @@ $Themes = @{
                Ok = '#12945F'; OkSoft = '#DDF2E8'; Danger = '#D33A3A'; DangerSoft = '#FBE6E6'; LogBg = '#0A0C10' }
 }
 $script:Theme = 'Dark'
+# The [Brush] cast matters: without it PowerShell stores its PSObject wrapper
+# in the resource dictionary, and WPF rejects that as a colour.
+$BrushConv = New-Object Windows.Media.BrushConverter
+function New-Brush([string]$hex) { return [Windows.Media.Brush]$BrushConv.ConvertFromString($hex) }
 function Set-Theme([string]$name) {
     foreach ($k in $Themes[$name].Keys) {
-        $win.Resources[$k] = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($Themes[$name][$k]))
+        $win.Resources[$k] = [Windows.Media.Brush](New-Brush $Themes[$name][$k])
     }
     $script:Theme = $name
     $ui.BtnTheme.Content = $(if ($name -eq 'Dark') { 'Switch to light theme' } else { 'Switch to dark theme' })
@@ -88,7 +92,7 @@ function Get-Current { return $ui.DistroList.SelectedItem }
 function Show-Distro {
     $d = Get-Current
     if (-not $d) { return }
-    $ui.HeroAvatar.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($d.Color))
+    $ui.HeroAvatar.Background = New-Brush $d.Color
     $ui.HeroInitial.Text = $d.Initial
     $ui.HeroName.Text = $d.Pretty
     $ui.HeroId.Text = $d.Name
