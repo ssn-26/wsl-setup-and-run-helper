@@ -24,3 +24,5 @@ bash/** text eol=lf
 .github/ export-ignore
 README.md export-ignore
 LICENSE export-ignore
+installer/ export-ignore
+docs/ export-ignore

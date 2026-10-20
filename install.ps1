@@ -45,6 +45,8 @@ function Assert-PanelClosed {
 }
 
 $UNINSTALL_KEY = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WSLControlPanel'
+# The Settings > Apps entry of the Setup wizard (installer\setup.iss AppId).
+$SETUP_KEY = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{11AE9744-F39D-4894-85B0-0C6FC37A1F67}_is1'
 $SHORTCUT_NAME = 'WSL Control Panel.lnk'
 $EXE_NAME = 'WSL Control Panel.exe'
 
@@ -67,7 +69,8 @@ function Copy-PanelFiles([string]$src, [string]$dest) {
         Copy-Item -LiteralPath (Join-Path $src $d) -Destination $target -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $src 'install.ps1') -Destination (Join-Path $dest 'install.ps1') -Force
-    foreach ($old in 'launcher', 'WSL-Control-Panel.bat', 'Install.bat', 'README.md', 'LICENSE') {
+    # (unins000.* belong to the Setup wizard; this install replaces it.)
+    foreach ($old in 'launcher', 'WSL-Control-Panel.bat', 'Install.bat', 'README.md', 'LICENSE', 'unins000.exe', 'unins000.dat') {
         Remove-Item -LiteralPath (Join-Path $dest $old) -Recurse -Force -ErrorAction SilentlyContinue
     }
     $oldConfig = Join-Path $src 'data\config'
@@ -106,6 +109,7 @@ function New-Shortcut([string]$path, [string]$exe) {
 }
 
 function Register-Uninstall([string]$dest, [string]$exe) {
+    Remove-Item -Path $SETUP_KEY -Recurse -Force -ErrorAction SilentlyContinue   # the Setup wizard's entry, if any
     New-Item -Path $UNINSTALL_KEY -Force | Out-Null
     $size = [int]((Get-ChildItem -LiteralPath $dest -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1KB)
     $values = @{

@@ -6,25 +6,35 @@ Windows 11-style window with buttons.
 
 ## Install
 
-Open **PowerShell** (Start menu -> type *PowerShell*), paste this line and press Enter:
+### [⬇ Download for Windows](https://github.com/ssn-26/wsl-setup-and-run-helper/releases/latest/download/WSL-Control-Panel-Setup.exe)
+
+1. Open the downloaded **WSL-Control-Panel-Setup.exe**.
+2. Click **Next**, then **Install** (you can change the folder if you like), then **Finish**.
+3. WSL Control Panel opens. Later, open it from the Start menu or the desktop.
+
+No administrator rights needed. Windows 10 and 11.
+
+> **If Windows shows "Windows protected your PC"**, click **More info**, then
+> **Run anyway**. This appears because the Setup is not signed with a paid
+> certificate yet - it is the same app as the code in this repository. You only
+> see it once: updates are installed from inside the app, without the warning.
+
+**Updates:** when a new version is out, the app shows **Update now**. One click,
+and it updates itself; your distros, logins and settings stay as they are.
+
+**Uninstall:** Settings -> Apps -> WSL Control Panel. It asks whether to delete
+your saved logins too; your Linux distros and backups are never touched.
+
+<details><summary>Advanced: install with PowerShell instead (no warning at all)</summary>
+
+Open **PowerShell**, paste this line and press Enter:
 
 ```powershell
 irm https://raw.githubusercontent.com/ssn-26/wsl-setup-and-run-helper/main/install.ps1 | iex
 ```
 
-That's all: no administrator rights, no security warnings. It puts **WSL Control
-Panel** in the Start menu and on the desktop (and under Settings -> Apps, to
-uninstall it). Run the same line again to update; your saved logins and settings
-are kept.
-
-<details><summary>Prefer the ZIP?</summary>
-
-Download the ZIP from GitHub, then right-click it -> **Properties** -> tick
-**Unblock** -> OK *before* extracting (this stops Windows' "Do you want to run
-this file?" warnings). Then double-click **`Install.bat`** to install it as
-above, or double-click `WSL-Control-Panel.bat` to run it from the folder without
-installing. (Double-clicking `install.ps1` itself only asks which app to open it
-with - Windows never runs .ps1 files on a double-click.)
+It installs the same app (building its small exe on your PC). Run the line
+again to update.
 </details>
 
 Double-click it on a brand-new PC and it installs WSL for you. On a PC that
@@ -179,12 +189,12 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 
 ## Folder layout
 
-Installed, only what the app needs goes on your PC, in
-`%LOCALAPPDATA%\Programs\WSL Control Panel`:
+Installed, only what the app needs goes on your PC, in the folder you chose
+(by default `%LOCALAPPDATA%\Programs\WSL Control Panel`):
 
 ```
-WSL Control Panel.exe     <- the app (built on your PC by install.ps1)
-install.ps1               kept for updates and uninstalling
+WSL Control Panel.exe     <- the app
+unins000.exe / .dat       the uninstaller (with the PowerShell install: install.ps1 instead)
 bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
                           + xsession, the desktop session file both installers write
 powershell\               the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
@@ -194,10 +204,12 @@ data\                     the panel's own files (never committed to git)
   logs\                   the full output of each desktop install
 ```
 
-The repository also has `launcher\` (the exe's source and `build.ps1`, used
-while installing), `Install.bat` and `WSL-Control-Panel.bat` (for an unzipped
-copy). This README, the licence and the git/CI files stay on GitHub: they are
-left out of "Download ZIP" too (`export-ignore` in `.gitattributes`).
+The repository also has `launcher\` (the exe's source and `build.ps1`),
+`installer\` (the Setup wizard, `setup.iss`, built by GitHub for every release
+with Inno Setup), `install.ps1` (the PowerShell install), and `Install.bat` /
+`WSL-Control-Panel.bat` (for an unzipped copy). This README, the licence, the
+installer and the git/CI files stay on GitHub: they are left out of "Download
+ZIP" too (`export-ignore` in `.gitattributes`).
 
 **Your Linux disks and backups are never stored in the panel's folder.**
 Download, Back up and Restore always ask where to save (the folder picker
