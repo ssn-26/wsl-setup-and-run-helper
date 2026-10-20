@@ -44,7 +44,7 @@
     <SolidColorBrush x:Key="DangerFill" Color="#C42B1C"/>
     <SolidColorBrush x:Key="Smoke" Color="#4D000000"/>
     <SolidColorBrush x:Key="DialogBg" Color="#2B2B2B"/>
-    <SolidColorBrush x:Key="DialogFooter" Color="#202020"/>
+    <SolidColorBrush x:Key="DialogFooterBg" Color="#202020"/>
     <SolidColorBrush x:Key="LogBg" Color="#0C0C0C"/>
 
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
@@ -347,7 +347,7 @@
     </Style>
     <!-- The grey button band at the bottom of every dialog -->
     <Style x:Key="DialogFooter" TargetType="Border">
-      <Setter Property="Background" Value="{DynamicResource DialogFooter}"/>
+      <Setter Property="Background" Value="{DynamicResource DialogFooterBg}"/>
       <Setter Property="Margin" Value="-24,24,-24,-24"/>
       <Setter Property="Padding" Value="24"/>
       <Setter Property="CornerRadius" Value="0,0,8,8"/>

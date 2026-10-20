@@ -64,14 +64,14 @@ $Themes = @{
                Text = '#FFFFFF'; Muted = '#C5FFFFFF'; Tertiary = '#87FFFFFF'
                Ok = '#6CCB5F'; OkSoft = '#393D1B'; Warn = '#FCE100'; WarnSoft = '#433519'
                Danger = '#FF99A4'; DangerSoft = '#442726'; DangerFill = '#C42B1C'
-               Smoke = '#4D000000'; DialogBg = '#2B2B2B'; DialogFooter = '#202020'; LogBg = '#0C0C0C' }
+               Smoke = '#4D000000'; DialogBg = '#2B2B2B'; DialogFooterBg = '#202020'; LogBg = '#0C0C0C' }
     Light = @{ WindowBg = '#F3F3F3'; Sidebar = '#00000000'; LayerFill = '#80FFFFFF'; Card = '#B3FFFFFF'; Line = '#0F000000'
                ControlFill = '#B3FFFFFF'; ControlHover = '#80F9F9F9'; ControlPressed = '#4DF9F9F9'; ControlStroke = '#1F000000'
                InputActive = '#FFFFFF'; SubtleHover = '#09000000'; SubtleSelected = '#06000000'; Raised = '#0A000000'
                Text = '#E4000000'; Muted = '#9E000000'; Tertiary = '#72000000'
                Ok = '#0F7B0F'; OkSoft = '#DFF6DD'; Warn = '#9D5D00'; WarnSoft = '#FFF4CE'
                Danger = '#C42B1C'; DangerSoft = '#FDE7E9'; DangerFill = '#C42B1C'
-               Smoke = '#4D000000'; DialogBg = '#FFFFFF'; DialogFooter = '#F3F3F3'; LogBg = '#0C0C0C' }
+               Smoke = '#4D000000'; DialogBg = '#FFFFFF'; DialogFooterBg = '#F3F3F3'; LogBg = '#0C0C0C' }
 }
 # The [Brush] cast matters: without it PowerShell stores its PSObject wrapper
 # in the resource dictionary, and WPF rejects that as a colour.
