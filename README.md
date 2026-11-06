@@ -9,7 +9,8 @@ Windows 11-style window with buttons.
 ### [⬇ Download for Windows](https://github.com/ssn-26/wsl-setup-and-run-helper/releases/latest/download/WSL-Control-Panel-Setup.exe)
 
 1. Open the downloaded **WSL-Control-Panel-Setup.exe**.
-2. Click **Next**, then **Install** (you can change the folder if you like), then **Finish**.
+2. Click **Next**, then **Browse** to choose where to put the app (there is no
+   default folder - you pick it), then **Install** and **Finish**.
 3. WSL Control Panel opens. Later, open it from the Start menu or the desktop.
 
 No administrator rights needed. Windows 10 and 11.
@@ -33,8 +34,9 @@ Open **PowerShell**, paste this line and press Enter:
 irm https://raw.githubusercontent.com/ssn-26/wsl-setup-and-run-helper/main/install.ps1 | iex
 ```
 
-It installs the same app (building its small exe on your PC). Run the line
-again to update.
+It installs the same app (building its small exe on your PC). The first time,
+a folder window asks where to put it. Run the line again to update; it keeps
+the folder you chose.
 </details>
 
 Double-click it on a brand-new PC and it installs WSL for you. On a PC that
@@ -190,7 +192,7 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 ## Folder layout
 
 Installed, only what the app needs goes on your PC, in the folder you chose
-(by default `%LOCALAPPDATA%\Programs\WSL Control Panel`):
+when installing (there is no default; updates keep that folder):
 
 ```
 WSL Control Panel.exe     <- the app

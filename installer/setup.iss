@@ -3,7 +3,9 @@
 ;
 ; Built by installer\build-setup.ps1 (on GitHub for every release), which
 ; passes AppVersion, Stage (the folder with the app's files) and Icon.
-; Screens: Welcome -> where to install (pre-filled, with Browse) -> Finish.
+; Screens: Welcome -> where to install -> Finish. On a first install the
+; folder box starts empty: the user must choose (Browse or type) where the app
+; goes. Updates reuse the folder chosen then and skip that page.
 ; Installs for the current user only, so Windows asks for no administrator
 ; rights. Uninstall: Settings > Apps.
 ;
@@ -60,7 +62,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
 WelcomeLabel2=This installs [name/ver] on your computer.%n%nIt lets you install and run Linux on Windows (WSL) from simple buttons - no commands to type.%n%nNo administrator rights are needed.
-SelectDirLabel3=Setup will put the app in this folder. Your Linux distros and backups are not stored here - the app asks you where to keep them.
+SelectDirLabel3=Choose where to put the app. Your Linux distros and backups are not stored here - the app asks you where to keep them.
+SelectDirBrowseLabel=Click Browse to pick a folder (a "WSL Control Panel" folder is made inside it), or type a full path. Then click Next.
 FinishedLabel=WSL Control Panel is installed. You can open it any time from the Start menu or the desktop.
 
 [InstallDelete]
@@ -92,9 +95,26 @@ Filename: "{app}\{#AppExe}"; Description: "Open WSL Control Panel"; Flags: posti
 Filename: "{app}\{#AppExe}"; Flags: nowait; Check: ShouldRelaunch
 
 [Code]
+var
+  DirCleared: Boolean;
+
 function ShouldRelaunch: Boolean;
 begin
   Result := WizardSilent and (ExpandConstant('{param:relaunch|0}') = '1');
+end;
+
+// No default folder: on a first install the folder box starts empty, so the
+// user picks where the app goes. (DefaultDirName above is only used by a
+// silent install without /DIR.) An update already knows its folder and does
+// not show this page.
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (CurPageID = wpSelectDir) and not DirCleared then
+  begin
+    DirCleared := True;
+    if WizardForm.PrevAppDir = '' then
+      WizardForm.DirEdit.Text := '';
+  end;
 end;
 
 // Folders like Program Files need administrator rights: say so on the folder
@@ -106,6 +126,14 @@ begin
   Result := True;
   if CurPageID = wpSelectDir then
   begin
+    Dir := Trim(WizardForm.DirEdit.Text);
+    if Dir = '' then
+    begin
+      MsgBox('Please choose where to install the app: click Browse and pick a folder, or type a full path such as' + #13#10 +
+        'D:\Apps\WSL Control Panel', mbInformation, MB_OK);
+      Result := False;
+      Exit;
+    end;
     Dir := WizardDirValue;
     Probe := AddBackslash(Dir) + '.wsl-control-panel-write-test';
     if not ForceDirectories(Dir) or not SaveStringToFile(Probe, '', False) then

@@ -5,8 +5,8 @@
 #   irm https://raw.githubusercontent.com/ssn-26/wsl-setup-and-run-helper/main/install.ps1 | iex
 #
 # It downloads the panel straight from GitHub (so Windows shows no "downloaded
-# from the internet" warnings), puts it in your user folder
-# (%LOCALAPPDATA%\Programs\WSL Control Panel), builds "WSL Control Panel.exe"
+# from the internet" warnings), puts it in a folder you choose (it asks the
+# first time; updates reuse that folder), builds "WSL Control Panel.exe"
 # with the C# compiler that comes with Windows, and adds it to the Start menu,
 # the desktop and Settings > Apps (to uninstall). Running it again updates the
 # panel and keeps your saved logins and settings (the data folder).
@@ -109,17 +109,63 @@ function New-Shortcut([string]$path, [string]$exe) {
 }
 
 function Register-Uninstall([string]$dest, [string]$exe) {
+    if ($dest.Length -gt 3) { $dest = $dest.TrimEnd('\') }   # a trailing \ would break the quoted path below
     Remove-Item -Path $SETUP_KEY -Recurse -Force -ErrorAction SilentlyContinue   # the Setup wizard's entry, if any
     New-Item -Path $UNINSTALL_KEY -Force | Out-Null
     $size = [int]((Get-ChildItem -LiteralPath $dest -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1KB)
     $values = @{
         DisplayName = 'WSL Control Panel'; DisplayVersion = (Get-PanelVersion $dest); Publisher = 'ssn-26'
         DisplayIcon = $exe; InstallLocation = $dest; URLInfoAbout = 'https://github.com/ssn-26/wsl-setup-and-run-helper'
-        UninstallString = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$(Join-Path $dest 'install.ps1')"" -Uninstall"
+        UninstallString = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$(Join-Path $dest 'install.ps1')"" -Uninstall -InstallDir ""$dest"""
     }
     foreach ($k in $values.Keys) { New-ItemProperty -Path $UNINSTALL_KEY -Name $k -Value $values[$k] -PropertyType String -Force | Out-Null }
     foreach ($k in 'NoModify', 'NoRepair') { New-ItemProperty -Path $UNINSTALL_KEY -Name $k -Value 1 -PropertyType DWord -Force | Out-Null }
     New-ItemProperty -Path $UNINSTALL_KEY -Name EstimatedSize -Value $size -PropertyType DWord -Force | Out-Null
+}
+
+# Where an earlier install put the app: the Settings > Apps entry of this
+# installer or of the Setup wizard. '' when it is not installed.
+function Get-InstalledDir {
+    foreach ($key in $UNINSTALL_KEY, $SETUP_KEY) {
+        $dir = [string](Get-ItemProperty -Path $key -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+        if ($dir -and (Test-Path -LiteralPath $dir)) { return $dir.TrimEnd('\') }
+    }
+    return ''
+}
+
+# Asks where to install (there is no default). A "WSL Control Panel" folder is
+# made inside the folder picked, unless it already has that name. Returns ''
+# when the user cancels.
+function Select-InstallDir {
+    $picked = ''
+    if ([Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') {
+        Add-Type -AssemblyName System.Windows.Forms
+        $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }
+        $d = New-Object System.Windows.Forms.FolderBrowserDialog
+        $d.Description = 'Choose where to install WSL Control Panel. A "WSL Control Panel" folder is made inside the folder you pick.'
+        $d.ShowNewFolderButton = $true
+        try { if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $picked = $d.SelectedPath } }
+        finally { $owner.Dispose(); $d.Dispose() }
+    } else {
+        # No window possible here: ask in the console instead.
+        $picked = (Read-Host '  Where should the app be installed? Type a folder, e.g. D:\Apps (Enter to cancel)').Trim().Trim('"')
+    }
+    if (-not $picked) { return '' }
+    if ((Split-Path -Leaf $picked) -ne 'WSL Control Panel') { $picked = Join-Path $picked 'WSL Control Panel' }
+    return $picked
+}
+
+# Folders like Program Files need administrator rights: say so plainly instead
+# of failing halfway through copying.
+function Assert-Writable([string]$dir) {
+    $probe = Join-Path $dir '.wsl-control-panel-write-test'
+    try {
+        New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+        Set-Content -LiteralPath $probe -Value '' -ErrorAction Stop
+        Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+    } catch {
+        throw "Windows does not let this app write to $dir. Folders like Program Files need administrator rights - run this again and choose a folder in your user folder or on another drive."
+    }
 }
 
 function Install-Panel {
@@ -148,6 +194,18 @@ function Install-Panel {
             $src = (Get-ChildItem -LiteralPath (Join-Path $tmp 'x') -Directory | Select-Object -First 1).FullName
         }
         Get-ChildItem -LiteralPath $src -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
+
+        if (-not $dest) {
+            $dest = Get-InstalledDir
+            if ($dest) {
+                Write-Step "Updating the app in $dest ..."
+            } else {
+                Write-Step 'Choose where to install the app (a folder window opens) ...'
+                $dest = Select-InstallDir
+                if (-not $dest) { throw 'No folder was chosen, so nothing was installed.' }
+            }
+        }
+        Assert-Writable $dest
 
         Write-Step "Copying the panel to $dest ..."
         Copy-PanelFiles $src $dest
@@ -182,6 +240,11 @@ function Uninstall-Panel {
     $dest = $InstallDir
     try {
         Assert-PanelClosed
+        if (-not $dest) {
+            # The copy of this script inside the app folder, or the folder Windows knows.
+            if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot $EXE_NAME))) { $dest = $PSScriptRoot } else { $dest = Get-InstalledDir }
+            if (-not $dest) { throw 'WSL Control Panel does not seem to be installed (no install folder found).' }
+        }
         foreach ($p in Get-ShortcutPaths) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
         Remove-Item -Path $UNINSTALL_KEY -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $dest) {
@@ -219,7 +282,6 @@ function Uninstall-Panel {
     }
 }
 
-if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\WSL Control Panel' }
 $ErrorActionPreferenceBefore = $ErrorActionPreference
 $ErrorActionPreference = 'Stop'
 try {

@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in the window, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '2.3.1'
+$PANEL_VERSION = '2.4.0'
 # Where releases are published (the Update button gets them from here).
 $RELEASES_REPO = 'ssn-26/wsl-setup-and-run-helper'
 $SETUP_ASSET = 'WSL-Control-Panel-Setup.exe'
