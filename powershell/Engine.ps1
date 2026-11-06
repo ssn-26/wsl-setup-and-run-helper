@@ -783,27 +783,63 @@ function Start-KexWindow([string]$distro, $account) {
     Start-Process -FilePath (Get-WslExe) -ArgumentList (Join-WinArgs (@('-d', $distro) + $userArgs + @('--', 'bash', '-lc', $kexCmd)))
 }
 
-# Installs the XFCE desktop (+ xrdp, or Kali's Win-KeX). The output is shown
-# live AND saved to data\logs. Returns @{ Ok; ExitCode; Log }.
-function Install-DistroDesktop([string]$distro, [int]$port, [bool]$isKali) {
+# Runs a bash script as root inside the distro with its output shown live in
+# the task log (and kept in $log inside the distro). The script travels
+# through stdin from a temp file, so no command line has to carry it.
+# $ScriptArgs must be plain words (the callers check them). Returns the exit code.
+function Invoke-WslScriptStreamed([string]$distro, [string]$script, [string[]]$ScriptArgs, [string]$log) {
+    $tmp = Join-Path $env:TEMP ('wsl-panel-{0}.b64' -f [guid]::NewGuid().ToString('N'))
+    Set-Content -LiteralPath $tmp -Value (ConvertTo-Base64 $script) -Force -Encoding Ascii
+    $argText = (@($ScriptArgs) | ForEach-Object { "'" + ($_ -replace "'", "'\''") + "'" }) -join ' '
+    $sh = '/tmp/wsl-panel-' + [guid]::NewGuid().ToString('N') + '.sh'
+    $cmd = "tr -d '\r' | base64 -d > $sh && { bash $sh $argText </dev/null 2>&1 | tee $log; rc=`${PIPESTATUS[0]}; rm -f $sh; exit `$rc; }"
+    try {
+        return (Invoke-WslStreamed @('-d', $distro, '-u', 'root', '-e', 'bash', '-c', $cmd) $tmp)
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# The desktops the picker offers. Id is what install-desktop.sh takes.
+$DESKTOP_IDS = 'xfce', 'kde', 'cinnamon', 'mate', 'lxqt'
+$DESKTOP_NAMES = @{ xfce = 'XFCE'; kde = 'KDE Plasma'; cinnamon = 'Cinnamon'; mate = 'MATE'; lxqt = 'LXQt' }
+
+# The desktop the panel last installed in a distro ('' = none yet, which for
+# a desktop installed by an older version means XFCE).
+function Get-DesktopFile([string]$distro) { return (Join-Path $ACCOUNTS_FOLDER "$distro.desktop") }
+function Get-DistroDesktop([string]$distro) {
+    $f = Get-DesktopFile $distro
+    if (Test-Path -LiteralPath $f) {
+        $id = ([string](Get-Content -LiteralPath $f -TotalCount 1)).Trim()
+        if ($DESKTOP_IDS -contains $id) { return $id }
+    }
+    return ''
+}
+function Set-DistroDesktop([string]$distro, [string]$id) {
+    if (-not (Test-Path -LiteralPath $ACCOUNTS_FOLDER)) { New-Item -ItemType Directory -Path $ACCOUNTS_FOLDER -Force | Out-Null }
+    Set-Content -LiteralPath (Get-DesktopFile $distro) -Value $id -Force -Encoding Ascii
+}
+
+# Installs a desktop ($desktop: one of $DESKTOP_IDS) + xrdp, or Kali's own
+# XFCE + Win-KeX. The output is shown live AND saved to data\logs.
+# Returns @{ Ok; ExitCode; Log; Desktop }. Exit code 23 means that desktop is
+# not available for this distro.
+function Install-DistroDesktop([string]$distro, [int]$port, [bool]$isKali, [string]$desktop = 'xfce') {
+    if ($DESKTOP_IDS -notcontains $desktop) { throw "Unknown desktop '$desktop'." }
     $log = '/var/log/wsl-panel-desktop-install.log'
     if ($isKali) {
         Write-TaskLog "Installing Kali's XFCE desktop + Win-KeX (about 1-2 GB - this can take a while)..."
         $cmd = '{ set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y kali-desktop-xfce dbus-x11 kali-win-kex; } 2>&1 | tee ' + $log + '; exit ${PIPESTATUS[0]}'
         $rc = Invoke-WslStreamed @('-d', $distro, '-u', 'root', '--', 'bash', '-lc', $cmd)
+        $desktop = 'xfce'
     } else {
-        Write-TaskLog "Installing an XFCE desktop + xrdp (port $port) on $distro ..."
+        Write-TaskLog "Installing the $($DESKTOP_NAMES[$desktop]) desktop + xrdp (port $port) on $distro ..."
         Write-TaskLog '(auto-detecting the package manager - this can take several minutes)'
-        # The installer travels through stdin from a temp file, so no command
-        # line has to carry it.
-        $tmp = Join-Path $env:TEMP 'wsl-desktop-setup.b64'
-        Set-Content -LiteralPath $tmp -Value (ConvertTo-Base64 (Get-ScriptWithSession 'install-desktop.sh')) -Force -Encoding Ascii
-        $cmd = "tr -d '\r' | base64 -d > /tmp/wsl-desktop-setup.sh && { bash /tmp/wsl-desktop-setup.sh $port </dev/null 2>&1 | tee $log; rc=`${PIPESTATUS[0]}; rm -f /tmp/wsl-desktop-setup.sh; exit `$rc; }"
-        $rc = Invoke-WslStreamed @('-d', $distro, '-u', 'root', '-e', 'bash', '-c', $cmd) $tmp
-        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        $rc = Invoke-WslScriptStreamed $distro (Get-ScriptWithSession 'install-desktop.sh') @([string]$port, $desktop) $log
     }
+    if ($rc -eq 0) { Set-DistroDesktop $distro $desktop }
     $saved = Save-DistroLog $distro $log 'desktop-install'
-    return @{ Ok = ($rc -eq 0); ExitCode = $rc; Log = $saved }
+    return @{ Ok = ($rc -eq 0); ExitCode = $rc; Log = $saved; Desktop = $desktop }
 }
 
 # Opens a Terminal window (Windows Terminal when installed), as the saved
@@ -912,6 +948,7 @@ function Remove-WslDistro([string]$distro) {
     Invoke-WslQuiet @('--unregister', $distro) | Out-Null
     Remove-Item -LiteralPath (Get-AccountFile $distro) -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Get-PortFile $distro) -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Get-DesktopFile $distro) -Force -ErrorAction SilentlyContinue
 }
 
 # ------------------------------------------------------------------------------
@@ -1055,6 +1092,216 @@ function Import-WslDistro([string]$file, [string]$name, [string]$loc) {
     Invoke-WslQuiet @('--terminate', $name) | Out-Null
     Free-WslVm
     return @{ Ok = $true; ExitCode = 0; DefaultUser = $user }
+}
+
+# ------------------------------------------------------------------------------
+# Clone: a full copy of a distro under a new name
+# ------------------------------------------------------------------------------
+# The registry key WSL keeps for a distro ($null when there is none).
+function Get-LxssKey([string]$name) {
+    foreach ($k in @(Get-ChildItem -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' -ErrorAction SilentlyContinue)) {
+        $p = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
+        if ($p -and $p.DistributionName -eq $name) { return $k.PSPath }
+    }
+    return $null
+}
+
+# A Remote Desktop port that no distro uses yet (each one needs its own to run
+# two desktops at once).
+function Get-UnusedPort {
+    $used = @{ 3389 = $true }
+    foreach ($d in (Get-WslDistros)) { $used[(Get-DistroPort $d.Name)] = $true }
+    $p = [int]$Global:Config.DefaultRdpPort
+    while ($used.ContainsKey($p)) { $p++ }
+    return $p
+}
+
+# Why a clone cannot go ahead, or $null when it can.
+function Get-CloneProblem([string]$source, [string]$name, [string]$loc) {
+    if (-not (Get-LxssKey $source)) { return "'$source' is not installed (any more)." }
+    if (-not (Test-DistroName $name)) { return 'A distro name can only use letters, digits, dot, - and _ (no spaces).' }
+    if (Get-LxssKey $name) { return "A distro called '$name' is already installed. Pick another name." }
+    if (Test-Path -LiteralPath (Join-Path $loc 'ext4.vhdx')) { return "$loc already holds a distro disk (ext4.vhdx). Pick another folder." }
+    return $null
+}
+
+# Copies <source> to a new distro <name> stored in <loc>: its disk is exported
+# straight into the new folder and registered there, so there is only one
+# copy to wait for. WSL 1 distros (no disk file) go through a .tar instead.
+# The copy gets the same default login, the saved logins and desktop choice,
+# and its own Remote Desktop port. Returns @{ Ok; ExitCode; Port }.
+function Copy-WslDistro([string]$source, [string]$name, [string]$loc) {
+    if (-not (Test-Path -LiteralPath $loc)) { New-Item -ItemType Directory -Path $loc -Force | Out-Null }
+    $uid = $null
+    $srcKey = Get-LxssKey $source
+    if ($srcKey) { $uid = (Get-ItemProperty -Path $srcKey -ErrorAction SilentlyContinue).DefaultUid }
+    if ((Get-RunningDistros) -contains $source) { Write-TaskLog "Stopping $source so its disk can be copied ..."; Stop-Distro $source }
+
+    $vhd = Join-Path $loc 'ext4.vhdx'
+    $isV1 = -not (Get-DistroVhdInfo $source).Exists
+    if (-not $isV1) {
+        Write-TaskLog "Copying the disk of $source to $vhd - this can take a few minutes..."
+        $rc = Invoke-WslStreamed @('--export', $source, $vhd, '--vhd')
+        if ($rc -eq 0 -and (Test-Path -LiteralPath $vhd)) {
+            Write-TaskLog "Registering the copy as $name ..."
+            $rc = Invoke-WslStreamed @('--import-in-place', $name, $vhd)
+            if ($rc -ne 0) {
+                # An older WSL without --import-in-place: import a copy of the file.
+                Write-TaskLog 'This WSL version cannot register the disk where it is - importing a copy instead...'
+                $tmp = Join-Path $loc 'clone-source.vhdx'
+                Move-Item -LiteralPath $vhd -Destination $tmp -Force
+                $rc = Invoke-WslStreamed @('--import', $name, $loc, $tmp, '--vhd')
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+        if ($rc -ne 0 -and -not (Get-LxssKey $name)) { Remove-Item -LiteralPath $vhd -Force -ErrorAction SilentlyContinue }
+    } else {
+        $tar = Join-Path $loc 'clone-source.tar'
+        Write-TaskLog "Copying $source through a temporary file - this can take a few minutes..."
+        $rc = Invoke-WslStreamed @('--export', $source, $tar)
+        if ($rc -eq 0) { Write-TaskLog "Registering the copy as $name ..."; $rc = Invoke-WslStreamed @('--import', $name, $loc, $tar) }
+        Remove-Item -LiteralPath $tar -Force -ErrorAction SilentlyContinue
+    }
+    if ($rc -ne 0) { Free-WslVm; return @{ Ok = $false; ExitCode = $rc; Port = 0 } }
+
+    # The same default login as the original (an import starts as root).
+    $newKey = Get-LxssKey $name
+    if ($newKey -and $null -ne $uid) { Set-ItemProperty -Path $newKey -Name DefaultUid -Value ([int]$uid) -Type DWord }
+    # The panel's own settings for it.
+    if (Test-Path -LiteralPath (Get-AccountFile $source)) { Copy-Item -LiteralPath (Get-AccountFile $source) -Destination (Get-AccountFile $name) -Force }
+    $desk = Get-DistroDesktop $source
+    if ($desk) { Set-DistroDesktop $name $desk }
+    $port = Get-UnusedPort
+    Set-DistroPort $name $port
+    Write-TaskLog "Done. $name gets Remote Desktop port $port, so both desktops can be open at once."
+    Free-WslVm
+    return @{ Ok = $true; ExitCode = 0; Port = $port }
+}
+
+# ------------------------------------------------------------------------------
+# App store: Flatpak apps from Flathub (https://flathub.org), the one catalogue
+# that works the same on every distro. The window reads the catalogue in the
+# background; installing runs bash/flatpak.sh inside the distro as root.
+# ------------------------------------------------------------------------------
+$FLATHUB_API = 'https://flathub.org/api/v2'
+# The main categories Flathub knows (its /collection/category/<name>).
+$FLATHUB_CATEGORIES = 'audiovideo', 'development', 'education', 'game', 'graphics', 'network', 'office', 'science', 'system', 'utility'
+
+# Flathub's own rule for app ids, e.g. org.gimp.GIMP.
+function Test-FlatpakId([string]$id) { return ($id -cmatch '^[A-Za-z_][A-Za-z0-9_.-]{5,254}$') }
+
+# GET (or POST $body as JSON) to the Flathub API. The answer is read as UTF-8
+# (Windows PowerShell 5.1 guesses ISO-8859-1 otherwise, garbling names).
+function Invoke-Flathub([string]$path, $body = $null) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $wc = New-Object System.Net.WebClient
+    try {
+        $wc.Encoding = [System.Text.Encoding]::UTF8
+        $wc.Headers['User-Agent'] = 'WSL-Control-Panel'
+        if ($null -ne $body) {
+            $wc.Headers['Content-Type'] = 'application/json'
+            $json = $wc.UploadString("$FLATHUB_API$path", 'POST', ($body | ConvertTo-Json -Compress))
+        } else {
+            $json = $wc.DownloadString("$FLATHUB_API$path")
+        }
+    } finally { $wc.Dispose() }
+    return ($json | ConvertFrom-Json)
+}
+
+# A page of apps: $kind 'popular', 'category' ($value = one of
+# $FLATHUB_CATEGORIES) or 'search' ($value = the words). Returns @{ Rows }.
+function Get-FlathubApps([string]$kind, [string]$value = '') {
+    switch ($kind) {
+        'search'   { $r = Invoke-Flathub '/search' @{ query = $value; hits_per_page = 40; page = 1 } }
+        'category' {
+            if ($FLATHUB_CATEGORIES -notcontains $value) { throw "Unknown category '$value'." }
+            $r = Invoke-Flathub "/collection/category/$value`?page=1&per_page=40&sort_by=installs_last_month"
+        }
+        default    { $r = Invoke-Flathub '/collection/popular?page=1&per_page=40' }
+    }
+    $rows = @(foreach ($h in @($r.hits)) {
+        $id = [string]$h.app_id
+        if (-not (Test-FlatpakId $id)) { continue }
+        # Only apps: no add-ons or runtimes.
+        if ($h.type -and [string]$h.type -notmatch 'application') { continue }
+        [pscustomobject]@{
+            Id = $id; Name = [string]$h.name; Summary = [string]$h.summary
+            Icon = $(if ($h.icon) { [string]$h.icon } else { $null })
+            Developer = [string]$h.developer_name; Badge = ''
+        }
+    })
+    return @{ Rows = $rows }
+}
+
+# Flathub descriptions are a little HTML (<p>, <ul><li>, <em>): as plain text.
+function ConvertFrom-FlathubHtml([string]$html) {
+    $t = $html -replace '(?i)<li[^>]*>', "`n  - " -replace '(?i)</p>|<br\s*/?>|</ul>|</ol>', "`n" -replace '<[^>]+>', ''
+    $t = [System.Net.WebUtility]::HtmlDecode($t)
+    $t = ($t -split "`n" | ForEach-Object { $_.TrimEnd() }) -join "`n"
+    return (($t -replace "`n{3,}", "`n`n").Trim())
+}
+
+# Details for one app: @{ Id; Name; Summary; Developer; Icon; Description;
+# Screenshot (a URL or ''); Homepage; DownloadMB; InstalledMB; RuntimeName; RuntimeMB }.
+# Sizes are 0 when Flathub does not say.
+function Get-FlathubDetails([string]$id) {
+    if (-not (Test-FlatpakId $id)) { throw "'$id' is not a Flathub app id." }
+    $a = Invoke-Flathub "/appstream/$id"
+    $shot = ''
+    foreach ($s in @($a.screenshots)) {
+        # The size closest to the panel's width, preferring one up to 1000 px wide.
+        $sizes = @($s.sizes | Where-Object { $_.src } | Sort-Object { [int]$_.width })
+        if (-not $sizes.Count) { continue }
+        $fit = @($sizes | Where-Object { [int]$_.width -le 1000 }) | Select-Object -Last 1
+        $shot = [string]$(if ($fit) { $fit.src } else { $sizes[0].src })
+        break
+    }
+    $d = @{ Id = $id; Name = [string]$a.name; Summary = [string]$a.summary; Developer = [string]$a.developer_name
+            Icon = [string]$a.icon; Description = (ConvertFrom-FlathubHtml ([string]$a.description)); Screenshot = $shot
+            Homepage = $(if ($a.urls -and $a.urls.homepage) { [string]$a.urls.homepage } else { '' })
+            DownloadMB = 0; InstalledMB = 0; RuntimeName = ''; RuntimeMB = 0 }
+    try {
+        $s = Invoke-Flathub "/summary/$id"
+        if ($s.download_size) { $d.DownloadMB = [math]::Round([double]$s.download_size / 1MB) }
+        if ($s.installed_size) { $d.InstalledMB = [math]::Round([double]$s.installed_size / 1MB) }
+        if ($s.metadata) {
+            $d.RuntimeName = $(if ($s.metadata.runtimeName) { [string]$s.metadata.runtimeName } else { ([string]$s.metadata.runtime -split '/')[0] })
+            if ($s.metadata.runtimeInstalledSize) { $d.RuntimeMB = [math]::Round([double]$s.metadata.runtimeInstalledSize / 1MB) }
+        }
+    } catch { }   # sizes are a bonus: the details still show without them
+    return $d
+}
+
+# The Flatpak apps installed in a distro: @{ Ready (Flatpak is set up);
+# Apps = @{ <id> = <name> } }. Starts the distro.
+function Get-FlatpakInstalled([string]$distro) {
+    $res = Invoke-WslScript $distro 'root' (Get-ScriptText 'flatpak.sh') @('list')
+    $apps = @{}
+    if ($res.ExitCode -ne 0 -or ($res.Output -contains 'NO_FLATPAK')) { return @{ Ready = $false; Apps = $apps } }
+    foreach ($l in $res.Output) {
+        $parts = $l -split "`t", 2
+        if (Test-FlatpakId $parts[0]) { $apps[$parts[0]] = $(if ($parts.Count -gt 1) { $parts[1].Trim() } else { $parts[0] }) }
+    }
+    return @{ Ready = $true; Apps = $apps }
+}
+
+# Installs ('install') or uninstalls ('remove') a Flathub app in a distro,
+# setting Flatpak up the first time. Returns @{ Ok; ExitCode; Log }.
+function Invoke-FlatpakAction([string]$distro, [string]$action, [string]$id) {
+    if (-not (Test-FlatpakId $id)) { throw "'$id' is not a Flathub app id." }
+    if ($action -notin 'install', 'remove') { throw "Unknown action '$action'." }
+    $log = '/var/log/wsl-panel-flatpak.log'
+    $rc = Invoke-WslScriptStreamed $distro (Get-ScriptText 'flatpak.sh') @($action, $id) $log
+    $saved = $null
+    if ($rc -ne 0) { $saved = Save-DistroLog $distro $log 'app-store' }
+    return @{ Ok = ($rc -eq 0); ExitCode = $rc; Log = $saved }
+}
+
+# Starts an installed app. Through WSLg it opens as a normal Windows window;
+# the hidden wsl.exe stays as long as the app runs, which keeps WSL awake.
+function Open-FlatpakApp([string]$distro, [string]$id) {
+    if (-not (Test-FlatpakId $id)) { throw "'$id' is not a Flathub app id." }
+    Start-Process -FilePath (Get-WslExe) -WindowStyle Hidden -ArgumentList (Join-WinArgs @('-d', $distro, '-e', 'flatpak', 'run', $id))
 }
 
 # ------------------------------------------------------------------------------

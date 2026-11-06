@@ -387,6 +387,27 @@
       </Setter>
     </Style>
 
+    <!-- Desktop picker: a selectable card per desktop, accent border when chosen -->
+    <Style x:Key="DeskCard" TargetType="ListBoxItem">
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+      <Setter Property="Foreground" Value="{DynamicResource Text}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border x:Name="b" Width="292" Margin="0,0,12,12" Padding="12" CornerRadius="8" BorderThickness="2"
+                    Background="{DynamicResource Card}" BorderBrush="{DynamicResource Line}">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource ControlHover}"/></Trigger>
+              <Trigger Property="IsSelected" Value="True"><Setter TargetName="b" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <!-- Settings-style card: icon - title + description - control -->
     <Style x:Key="CardBox" TargetType="Border">
       <Setter Property="Background" Value="{DynamicResource Card}"/>
@@ -461,7 +482,7 @@
       <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="16,8,0,0">
         <Image x:Name="TitleIcon" Width="16" Height="16" VerticalAlignment="Center"/>
         <TextBlock Text="WSL Control Panel" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center"/>
-        <TextBlock x:Name="TitleVersion" Text="v2.4.0" FontSize="12" Foreground="{DynamicResource Tertiary}"
+        <TextBlock x:Name="TitleVersion" Text="v2.5.0" FontSize="12" Foreground="{DynamicResource Tertiary}"
                    Margin="8,0,0,0" VerticalAlignment="Center"/>
       </StackPanel>
     </Grid>
@@ -471,7 +492,7 @@
       <StackPanel x:Name="NavTitle" DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,14,16,6">
         <Image x:Name="AppIcon" Width="20" Height="20" VerticalAlignment="Center"/>
         <TextBlock Text="WSL Control Panel" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center"/>
-        <TextBlock x:Name="VersionText" Text="v2.4.0" FontSize="12" Foreground="{DynamicResource Tertiary}"
+        <TextBlock x:Name="VersionText" Text="v2.5.0" FontSize="12" Foreground="{DynamicResource Tertiary}"
                    Margin="8,0,0,0" VerticalAlignment="Center"/>
       </StackPanel>
 
@@ -531,6 +552,12 @@
             <StackPanel Orientation="Horizontal">
               <TextBlock Style="{StaticResource Icon}" Text="&#xE710;"/>
               <TextBlock Text="Download a distro" Margin="14,0,0,0"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="BtnStore" Style="{StaticResource NavButton}" ToolTip="Install Linux apps from Flathub into a distro">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource Icon}" Text="&#xE719;"/>
+              <TextBlock Text="App store" Margin="14,0,0,0"/>
             </StackPanel>
           </Button>
 
@@ -669,6 +696,29 @@
               </DockPanel>
             </Border>
 
+            <!-- Desktop and apps -->
+            <TextBlock Text="Desktop and apps" Style="{StaticResource H2}"/>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE7F4;"/>
+                <Button x:Name="BtnChooseDesktop" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Choose desktop" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Desktop style"/>
+                  <TextBlock x:Name="DeskCurrent" Style="{StaticResource MutedText}" Text=" "/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE719;"/>
+                <Button x:Name="BtnDistroStore" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="App store" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Linux apps"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="Install apps such as GIMP, VLC or LibreOffice from Flathub. They open as normal Windows windows (WSLg)."/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+
             <!-- Accounts -->
             <TextBlock Text="Accounts" Style="{StaticResource H2}"/>
             <Border Style="{StaticResource CardBox}">
@@ -727,6 +777,16 @@
             </Border>
             <Border Style="{StaticResource CardBox}">
               <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE8C8;"/>
+                <Button x:Name="BtnClone" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Clone" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Make a copy"/>
+                  <TextBlock Style="{StaticResource MutedText}" Text="A full copy under a new name: programs, desktop, users, files and saved logins. Nothing is downloaded again - handy before trying something risky."/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
                 <TextBlock Style="{StaticResource CardIcon}" Text="&#xE774;"/>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                   <TextBlock x:Name="StatPort" Visibility="Collapsed"/>
@@ -767,24 +827,6 @@
           </StackPanel>
         </ScrollViewer>
 
-        <!-- InfoBar: quick results -->
-        <Border x:Name="Toast" Visibility="Collapsed" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="1000"
-                Margin="40,16,40,0" Background="{DynamicResource OkSoft}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
-                CornerRadius="4" Padding="14,10">
-          <Border.RenderTransform><TranslateTransform x:Name="ToastShift"/></Border.RenderTransform>
-          <DockPanel>
-            <Grid DockPanel.Dock="Left" Width="16" Height="16" Margin="0,2,12,0" VerticalAlignment="Top">
-              <Ellipse x:Name="ToastIconBg" Fill="{DynamicResource Ok}"/>
-              <TextBlock x:Name="ToastIcon" Style="{StaticResource Icon}" FontSize="10" Text="&#xE73E;"
-                         Foreground="{DynamicResource AccentInk}" HorizontalAlignment="Center"/>
-            </Grid>
-            <Button x:Name="ToastClose" DockPanel.Dock="Right" Style="{StaticResource NavButton}" VerticalAlignment="Top" Margin="8,-6,-8,-6"
-                    ToolTip="Close" AutomationProperties.Name="Close message">
-              <TextBlock Style="{StaticResource Icon}" FontSize="12" Text="&#xE711;"/>
-            </Button>
-            <TextBlock x:Name="ToastText" Text="" TextWrapping="Wrap" VerticalAlignment="Center"/>
-          </DockPanel>
-        </Border>
       </Grid>
     </Border>
 
@@ -1088,8 +1130,224 @@
               </ItemsControl>
             </ScrollViewer>
           </DockPanel>
+
+          <!-- App store: Flathub apps, installed into the distro chosen at the top -->
+          <DockPanel x:Name="PanelStore" Visibility="Collapsed">
+            <StackPanel DockPanel.Dock="Top">
+              <TextBlock Text="App store" Style="{StaticResource DialogTitle}"/>
+              <TextBlock Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,0"
+                         Text="Linux apps from Flathub. Installed apps open as normal Windows windows and appear in the Start menu under the distro's name."/>
+              <DockPanel Margin="0,12,0,0">
+                <TextBlock Text="Install into" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <ListBox x:Name="StoreDistros" Background="Transparent" BorderThickness="0"
+                         ItemContainerStyle="{StaticResource Chip}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                  <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
+                </ListBox>
+              </DockPanel>
+              <DockPanel Margin="0,12,0,0">
+                <Button x:Name="BtnStoreSearch" DockPanel.Dock="Right" Style="{StaticResource Primary}" Margin="8,0,0,0" MinWidth="96">
+                  <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE721;" FontSize="14"/><TextBlock Text="Search" Margin="8,0,0,0"/></StackPanel>
+                </Button>
+                <TextBox x:Name="StoreSearch" ToolTip="An app's name or what it does, e.g. photo editor"/>
+              </DockPanel>
+              <ListBox x:Name="StoreCats" Margin="0,10,0,0" Background="Transparent" BorderThickness="0"
+                       ItemContainerStyle="{StaticResource Chip}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
+              </ListBox>
+              <TextBlock x:Name="StoreStatus" Style="{StaticResource MutedText}" Margin="0,10,0,6" Text=" "/>
+            </StackPanel>
+            <Border Style="{StaticResource DialogFooter}" DockPanel.Dock="Bottom">
+              <DockPanel>
+                <Button x:Name="BtnStoreClose" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Close" MinWidth="96"/>
+                <TextBlock Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,16,0"
+                           Text="The first app also downloads a shared base (a runtime, often 300-900 MB) that later apps reuse."/>
+              </DockPanel>
+            </Border>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" MinWidth="260"/>
+                <ColumnDefinition Width="3*"/>
+              </Grid.ColumnDefinitions>
+              <ListBox x:Name="StoreList" MinHeight="120" Background="Transparent" BorderThickness="0"
+                       ItemContainerStyle="{StaticResource ListRow}" Foreground="{DynamicResource Text}"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.ScrollUnit="Pixel">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <DockPanel Margin="0,6">
+                      <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="6" Background="{DynamicResource Raised}" Margin="0,0,12,0">
+                        <Image Source="{Binding Icon}" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/>
+                      </Border>
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding Badge}" FontSize="12" Foreground="{DynamicResource Ok}"
+                                 VerticalAlignment="Center" Margin="8,0,4,0"/>
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Summary}" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+                    </DockPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <Border Grid.Column="1" Style="{StaticResource CardBox}" Margin="12,0,0,0" Padding="20" MinHeight="0">
+                <Grid>
+                  <TextBlock x:Name="StoreEmpty" Style="{StaticResource MutedText}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
+                             TextAlignment="Center" Text="Pick an app on the left to see what it is."/>
+                  <DockPanel x:Name="StoreDetail" Visibility="Collapsed">
+                    <DockPanel DockPanel.Dock="Top">
+                      <Border DockPanel.Dock="Left" Width="64" Height="64" CornerRadius="8" Background="{DynamicResource Raised}" Margin="0,0,16,0" VerticalAlignment="Top">
+                        <Image x:Name="StoreIcon" Width="56" Height="56" RenderOptions.BitmapScalingMode="HighQuality"/>
+                      </Border>
+                      <StackPanel>
+                        <TextBlock x:Name="StoreName" Style="{StaticResource DialogTitle}"/>
+                        <TextBlock x:Name="StoreDev" Style="{StaticResource MutedText}" Margin="0,2,0,0"/>
+                        <TextBlock x:Name="StoreSummary" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        <WrapPanel Margin="0,12,0,0">
+                          <Button x:Name="BtnStoreInstall" Style="{StaticResource Primary}" Content="Install" MinWidth="96" Margin="0,0,8,8"/>
+                          <Button x:Name="BtnStoreOpen" Style="{StaticResource Primary}" Content="Open" MinWidth="96" Margin="0,0,8,8"/>
+                          <Button x:Name="BtnStoreRemove" Style="{StaticResource Btn}" Content="Uninstall" Margin="0,0,8,8"/>
+                          <Button x:Name="BtnStoreWeb" Style="{StaticResource Btn}" Content="Flathub page" Margin="0,0,8,8"/>
+                        </WrapPanel>
+                        <TextBlock x:Name="StoreSize" Style="{StaticResource MutedText}" Margin="0,4,0,0"/>
+                      </StackPanel>
+                    </DockPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
+                      <StackPanel>
+                        <Image x:Name="StoreShot" MaxHeight="360" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,16"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <TextBlock x:Name="StoreDesc" TextWrapping="Wrap" LineHeight="20"/>
+                      </StackPanel>
+                    </ScrollViewer>
+                  </DockPanel>
+                </Grid>
+              </Border>
+            </Grid>
+          </DockPanel>
+
+          <!-- Desktop picker: a card per desktop with a sketch of its layout -->
+          <DockPanel x:Name="PanelDesktop" Visibility="Collapsed">
+            <StackPanel DockPanel.Dock="Top">
+              <TextBlock x:Name="DeskTitle" Text="Choose a desktop" Style="{StaticResource DialogTitle}"/>
+              <TextBlock x:Name="DeskIntro" Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,12"
+                         Text="This is what you see in Remote Desktop: the taskbar, start menu, file manager and settings. The sketches show the default layout; sizes are rough and vary by distro."/>
+            </StackPanel>
+            <Border Style="{StaticResource DialogFooter}" DockPanel.Dock="Bottom">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                  <Button x:Name="BtnDeskCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                  <Button x:Name="BtnDeskOk" Style="{StaticResource Primary}" Content="Install" IsEnabled="False" MinWidth="96"/>
+                </StackPanel>
+                <TextBlock x:Name="DeskNote" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,16,0"
+                           Text="Needs internet. It can take several minutes; a desktop you installed before stays installed."/>
+              </DockPanel>
+            </Border>
+            <ListBox x:Name="DeskList" MinHeight="120" Background="Transparent" BorderThickness="0"
+                     ItemContainerStyle="{StaticResource DeskCard}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel>
+                    <!-- The sketch: wallpaper, a window, and where the panels sit -->
+                    <Border Height="140" CornerRadius="4" Background="{Binding Wall}" ClipToBounds="True">
+                      <Grid>
+                        <Border Width="130" Height="74" Margin="0,0,0,8" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Background="#F2F4F4F4" CornerRadius="{Binding WinCorner}">
+                          <Border Height="11" VerticalAlignment="Top" Background="#FFD6D6D6" CornerRadius="{Binding TitleCorner}"/>
+                        </Border>
+                        <Border Height="12" VerticalAlignment="Top" Background="#E6202020" Visibility="{Binding Top}">
+                          <Border Width="8" Height="6" HorizontalAlignment="Left" Margin="5,0" CornerRadius="1" Background="#FFBDBDBD"/>
+                        </Border>
+                        <Border Height="16" VerticalAlignment="Bottom" Background="#EB202020" Visibility="{Binding Bottom}">
+                          <StackPanel Orientation="Horizontal" HorizontalAlignment="{Binding StartAlign}" Margin="5,0">
+                            <Border Width="10" Height="10" CornerRadius="2" Background="{Binding StartColor}" Margin="0,0,5,0"/>
+                            <Border Width="22" Height="8" CornerRadius="1" Background="#80FFFFFF" Margin="0,0,4,0"/>
+                            <Border Width="22" Height="8" CornerRadius="1" Background="#4DFFFFFF"/>
+                          </StackPanel>
+                        </Border>
+                        <Border Width="92" Height="16" Margin="0,0,0,5" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                                CornerRadius="5" Background="#B3202020" Visibility="{Binding Dock}">
+                          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Ellipse Width="9" Height="9" Fill="#FF5AA0E0" Margin="3,0"/>
+                            <Ellipse Width="9" Height="9" Fill="#FFE0A050" Margin="3,0"/>
+                            <Ellipse Width="9" Height="9" Fill="#FF70C070" Margin="3,0"/>
+                            <Ellipse Width="9" Height="9" Fill="#FFC070C0" Margin="3,0"/>
+                          </StackPanel>
+                        </Border>
+                      </Grid>
+                    </Border>
+                    <DockPanel Margin="0,12,0,0">
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding Badge}" FontSize="12" Foreground="{DynamicResource Ok}" VerticalAlignment="Center"/>
+                      <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold"/>
+                    </DockPanel>
+                    <TextBlock Text="{Binding Looks}" Style="{StaticResource MutedText}" Margin="0,2,0,8"/>
+                    <Grid>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                      <TextBlock Text="Like Windows" FontSize="12" Margin="0,0,12,2"/>
+                      <TextBlock Grid.Column="1" Text="{Binding Windows}" FontSize="12" Foreground="{DynamicResource Accent}"/>
+                      <TextBlock Grid.Row="1" Text="Like macOS" FontSize="12" Margin="0,0,12,2"/>
+                      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Mac}" FontSize="12" Foreground="{DynamicResource Accent}"/>
+                      <TextBlock Grid.Row="2" Text="Customisable" FontSize="12" Margin="0,0,12,2"/>
+                      <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Custom}" FontSize="12" Foreground="{DynamicResource Accent}"/>
+                      <TextBlock Grid.Row="3" Text="Light on your PC" FontSize="12" Margin="0,0,12,2"/>
+                      <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Light}" FontSize="12" Foreground="{DynamicResource Accent}"/>
+                      <TextBlock Grid.Row="4" Text="Download" FontSize="12" Margin="0,0,12,0"/>
+                      <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Size}" FontSize="12"/>
+                    </Grid>
+                    <TextBlock Text="{Binding Note}" Style="{StaticResource MutedText}" Margin="0,8,0,0"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </DockPanel>
+
+          <!-- Clone a distro -->
+          <DockPanel x:Name="PanelClone" Visibility="Collapsed">
+            <TextBlock x:Name="CloneTitle" DockPanel.Dock="Top" Text="Clone" Style="{StaticResource DialogTitle}"/>
+            <Border Style="{StaticResource DialogFooter}" DockPanel.Dock="Bottom">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnCloneCancel" Style="{StaticResource Btn}" Content="Cancel" Margin="0,0,8,0" MinWidth="96"/>
+                <Button x:Name="BtnCloneOk" Style="{StaticResource Primary}" Content="Clone" IsEnabled="False" MinWidth="96"/>
+              </StackPanel>
+            </Border>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+                <TextBlock Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,4"
+                           Text="Makes a full copy under a new name: everything inside it, its default login, saved logins and desktop. The copy gets its own Remote Desktop port, so both can be open at once."/>
+                <TextBlock Text="Name for the copy" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="CloneName" FontFamily="Cascadia Mono, Consolas"/>
+                <TextBlock Text="Where to store it (a folder named after it is created inside)" Style="{StaticResource FieldLabel}"/>
+                <DockPanel Margin="0,6,0,0">
+                  <Button x:Name="BtnCloneFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Choose folder" Margin="8,0,0,0"/>
+                  <TextBlock x:Name="CloneFolder" FontSize="12" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <Border Background="{DynamicResource WarnSoft}" CornerRadius="4" Padding="12,10" Margin="0,16,0,0">
+                  <DockPanel>
+                    <TextBlock Style="{StaticResource Icon}" Text="&#xE7BA;" Foreground="{DynamicResource Warn}" Margin="0,0,10,0" VerticalAlignment="Top"/>
+                    <TextBlock x:Name="CloneWarn" TextWrapping="Wrap" Text="The distro is stopped while it is copied, so an open desktop or terminal closes. Save your work."/>
+                  </DockPanel>
+                </Border>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
         </Grid>
       </Border>
     </Grid>
+    <!-- InfoBar: quick results. After the dialogs, so it also shows above an open dialog -->
+    <Border x:Name="Toast" Grid.Row="1" Grid.Column="1" Visibility="Collapsed" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="1000"
+            Margin="40,16,40,0" Background="{DynamicResource OkSoft}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+            CornerRadius="4" Padding="14,10">
+      <Border.RenderTransform><TranslateTransform x:Name="ToastShift"/></Border.RenderTransform>
+      <DockPanel>
+        <Grid DockPanel.Dock="Left" Width="16" Height="16" Margin="0,2,12,0" VerticalAlignment="Top">
+          <Ellipse x:Name="ToastIconBg" Fill="{DynamicResource Ok}"/>
+          <TextBlock x:Name="ToastIcon" Style="{StaticResource Icon}" FontSize="10" Text="&#xE73E;"
+                     Foreground="{DynamicResource AccentInk}" HorizontalAlignment="Center"/>
+        </Grid>
+        <Button x:Name="ToastClose" DockPanel.Dock="Right" Style="{StaticResource NavButton}" VerticalAlignment="Top" Margin="8,-6,-8,-6"
+                ToolTip="Close" AutomationProperties.Name="Close message">
+          <TextBlock Style="{StaticResource Icon}" FontSize="12" Text="&#xE711;"/>
+        </Button>
+        <TextBlock x:Name="ToastText" Text="" TextWrapping="Wrap" VerticalAlignment="Center"/>
+      </DockPanel>
+    </Border>
   </Grid>
 </Window>

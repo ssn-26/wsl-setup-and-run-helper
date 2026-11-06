@@ -62,11 +62,13 @@ My try to learn bash through a real-world working project.
 **Everyday use: a control panel for your distros**
 
 - **Left side:** your distros (running ones have a green dot), **Open default
-  desktop**, **Download a distro**, and the tools: Back up, Restore, Close
-  running, Shut down all, Compact a disk, Memory / CPU, Storage locations, Update WSL.
+  desktop**, **Download a distro**, the **App store**, and the tools: Back up,
+  Restore, Close running, Shut down all, Compact a disk, Memory / CPU, Storage
+  locations, Update WSL.
 - **Right side:** the distro you picked - **Open desktop**, **Terminal** and
-  **Close**, "Open as" (which saved login to use), its saved accounts, its
-  Remote Desktop port, systemd on/off, Compact disk, and Delete.
+  **Close**, "Open as" (which saved login to use), its desktop style and apps,
+  its saved accounts, Compact disk, **Clone**, its Remote Desktop port, systemd
+  on/off, and Delete.
 
 | Button | What happens behind the scenes |
 |---|---|
@@ -77,6 +79,9 @@ My try to learn bash through a real-world working project.
 | Download a distro | `wsl --install` from Microsoft's official list, with a resumable fallback |
 | Back up | `wsl --export` saves everything to one `.tar` (or faster `.vhdx`) file |
 | Restore | `wsl --import` brings a backup back, on this PC or a new one |
+| Clone | `wsl --export --vhd` straight into the new folder, then `wsl --import-in-place`: a full copy under a new name, with nothing downloaded again |
+| Choose desktop | Installs XFCE, KDE Plasma, Cinnamon, MATE or LXQt (+ xrdp) and makes Remote Desktop start it |
+| App store | Installs Linux apps from [Flathub](https://flathub.org) with `flatpak install`; they open as normal Windows windows through WSLg |
 | Compact | Hands unused `ext4.vhdx` space back to Windows (admin, via diskpart) |
 | Memory / CPU | Sets `memory`, `processors` and `swap` in `.wslconfig`; your other settings stay (a copy is kept as `.wslconfig.bak`) |
 | Storage locations | Shows where every distro, your backups and the panel's settings are, each with an **Open** button |
@@ -94,14 +99,31 @@ closes a dialog, **Enter** presses its main button, **F5** refreshes, and
   distro opens in Windows Remote Desktop (xrdp, default port **3390** so it never
   clashes with Windows' own Remote Desktop on 3389). Each distro can have its own
   port, so two desktops can be open at once.
-- **One-click desktop install.** If a distro has no desktop yet, the panel
-  installs XFCE + xrdp for you. It auto-detects the package manager (apt / dnf
-  / zypper / yum / pacman), and on Arch it builds xrdp from the AUR.
+- **Pick your desktop.** If a distro has no desktop yet, the panel shows a
+  card for each desktop it can install - XFCE, KDE Plasma, Cinnamon, MATE and
+  LXQt - with a sketch of its layout, how much it looks like Windows or macOS,
+  how customisable and how light it is, and its rough download size. It
+  installs your choice + xrdp, auto-detecting the package manager (apt / dnf /
+  zypper / yum / pacman; on Arch it builds xrdp from the AUR). **Choose
+  desktop** on the distro page switches to another one later. (Kali keeps its
+  own XFCE through Win-KeX. Fedora's KDE has no X11 session for Remote Desktop
+  any more, so the panel says so and lets you pick another.)
+- **App store.** Browse Flathub's apps by category or search, with icons,
+  screenshots, descriptions and download sizes, and install one into any
+  distro with one click. The panel sets Flatpak up the first time (the first
+  app also downloads a shared runtime, often 300-900 MB, that later apps
+  reuse). Installed apps open as normal windows on your Windows desktop
+  (WSLg) and are linked into the distro's menu so WSLg can add them to the
+  Windows Start menu. Uninstall removes runtimes no app needs any more.
+- **Clone a distro.** A full copy under a new name: programs, desktop, users,
+  files, the same default login and the saved logins. The copy gets its own
+  Remote Desktop port, so both desktops can be open at once. Handy before
+  trying something risky, or to set one distro up and copy it.
 - **Saved accounts.** Store a Linux username + password per distro so the
   panel logs you in automatically. Passwords are **encrypted with Windows
   DPAPI**, never stored as plain text. On a fresh distro, adding an account
-  also **creates that Linux user** with admin rights (`sudo` or `wheel`) and an
-  XFCE session, so the first login just works. You can also change a password or
+  also **creates that Linux user** with admin rights (`sudo` or `wheel`) and a
+  desktop session, so the first login just works. You can also change a password or
   remove a saved account. If a saved account's Linux user no longer exists (for
   example the distro was re-downloaded), the panel offers to create it again.
 - **Backup & restore.** A backup holds *everything* inside the distro:
@@ -197,7 +219,8 @@ when installing (there is no default; updates keep that folder):
 ```
 WSL Control Panel.exe     <- the app
 unins000.exe / .dat       the uninstaller (with the PowerShell install: install.ps1 instead)
-bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh)
+bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh,
+                          flatpak.sh for the App store)
                           + xsession, the desktop session file both installers write
 powershell\               the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
                           it does), AppIcon.ps1 (the icon), ui\MainWindow.xaml (layout and colours)
@@ -236,7 +259,9 @@ settings.
 | Kali: *"Xfce Notify Daemon – Unable to start notification daemon … Wayland compositor"* appears on the Windows desktop (e.g. when logging out) | XFCE starts its notification helper through systemd, which didn't know the desktop's display, so it fell back to **WSLg** | Fixed in the current panel: it tells systemd `DISPLAY=:1` and `GDK_BACKEND=x11` when starting Win-KeX. Close the dialog; reopen the desktop through the panel |
 | Desktop install ends with `AUR_BUILD_FAILED` (Arch) | Building xrdp from the AUR failed | Read the error in the install log the panel names (in `data\logs`). Usually no internet, or a full disk |
 | Remote Desktop is black **and XFCE's panel/dock appears on the Windows desktop** | WSL links **WSLg** (its bridge that shows Linux windows on Windows) into every user's runtime folder, and XFCE's toolkit prefers it over xrdp's screen | Fixed in the current panel: the session files force X11. For a desktop set up with an older panel, re-add the account with **Add an account** (creating the user; this rewrites the session files), log out of the old session, and open the Desktop again |
-| Remote Desktop window is black (nothing on the Windows desktop either) | The XFCE session didn't start for that user | Log in with a user the panel created (it sets up the XFCE session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` end with `exec startxfce4` |
+| Remote Desktop window is black (nothing on the Windows desktop either) | The desktop session didn't start for that user | Log in with a user the panel created (it sets up the session). Otherwise open a Terminal and check that `~/.xsession` and `~/.xinitrc` end with `exec "$SESSION"`, and that `/etc/wsl-panel-session` names the desktop's start command (e.g. `startplasma-x11`) |
+| After **Choose desktop**, Remote Desktop still shows the old desktop | The old desktop session is still logged in; closing the Remote Desktop window keeps it running | Log out from inside the desktop (its menu: Log out / Sign out), then press **Open desktop** again |
+| An App store app doesn't open, or isn't in the Start menu | WSLg isn't available (Windows 10 without WSLg, or an old WSL), or the Start menu hasn't refreshed yet | Run **Update WSL**, then **Shut down WSL** and try again. The app can always be started with **Open** in the App store |
 | Desktop closes a few seconds after opening | WSL idle shutdown | Open it through the panel. Its keep-alive holds WSL up while XFCE runs |
 | *"Failed to attach disk ... ext4.vhdx ... ERROR_SHARING_VIOLATION"* | Another program has the distro's disk file open: a stuck WSL, a copy or backup of `data\linux` still running, the `.vhdx` double-clicked (Windows mounted it), or antivirus | The panel catches this before opening and offers **Shut down WSL and try again**, or **Detach the disk and try again**. Still stuck? Restart Windows |
 | *"Do you want to run this file?"* every time | Windows marks files from a downloaded ZIP | [Install it](#install) with the one line instead. Or click **Run** once (the panel then unblocks its own files), or unblock the ZIP before extracting |
@@ -320,7 +345,13 @@ settings.
 
 ## Notes / limitations
 
-- Desktops are XFCE-based: Kali via Win-KeX, every other distro via xrdp.
+- Kali opens its own XFCE via Win-KeX; every other distro opens the desktop you
+  chose (XFCE unless you picked another) via xrdp. Only XFCE has been tested
+  on every distro so far; the other desktops are wired up for apt, dnf, zypper
+  and pacman and were checked on Ubuntu 24.04 (packages and session commands).
+- The App store needs WSLg (Windows 11, or Windows 10 with the Store version of
+  WSL) to show apps as windows. Apps are Flatpaks from Flathub, installed
+  system-wide in the distro.
 - Compacting a disk needs administrator rights and stops all of WSL.
 
 ---

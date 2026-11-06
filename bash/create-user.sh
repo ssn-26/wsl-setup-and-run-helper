@@ -79,10 +79,10 @@ if ! command -v sudo >/dev/null 2>&1; then
     echo "    Check the internet connection inside the distro, then add the account again."
 fi
 
-# 3. Configure XFCE Desktop session files (.xsession & .xinitrc)
-# Forces X11 mode so XFCE renders inside Remote Desktop instead of WSLg.
+# 3. Configure the desktop session files (.xsession & .xinitrc)
+# Forces X11 mode so the desktop renders inside Remote Desktop instead of WSLg.
 # Routes audio to WSLg's PulseAudio server for working sound.
-echo "  - Setting up XFCE session and audio forwarding..."
+echo "  - Setting up the desktop session and audio forwarding..."
 USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
 USER_HOME="${USER_HOME:-/home/$USERNAME}"
 

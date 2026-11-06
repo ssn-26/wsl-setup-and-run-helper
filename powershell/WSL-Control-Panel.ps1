@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in the window, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '2.4.0'
+$PANEL_VERSION = '2.5.0'
 # Where releases are published (the Update button gets them from here).
 $RELEASES_REPO = 'ssn-26/wsl-setup-and-run-helper'
 $SETUP_ASSET = 'WSL-Control-Panel-Setup.exe'
@@ -271,10 +271,11 @@ function Show-Toast([string]$msg, [string]$kind = 'Ok') {
 $ui.ToastClose.Add_Click({ $ui.Toast.Visibility = 'Collapsed'; $script:ToastTimer.Stop() })
 
 $Panels = 'PanelMessage', 'PanelUser', 'PanelTask', 'PanelDelete', 'PanelPick', 'PanelDownload', 'PanelBackup',
-          'PanelRestore', 'PanelLimits', 'PanelFolders'
+          'PanelRestore', 'PanelLimits', 'PanelFolders', 'PanelStore', 'PanelDesktop', 'PanelClone'
 # The main button of each dialog, pressed by Enter.
 $DefaultButtons = @{ PanelMessage = 'MsgB1'; PanelUser = 'BtnUserOk'; PanelDelete = 'BtnDelOk'; PanelPick = 'PickB1'
-                     PanelDownload = 'BtnDlOk'; PanelBackup = 'BtnBakOk'; PanelRestore = 'BtnResOk'; PanelFolders = 'BtnFolClose' }
+                     PanelDownload = 'BtnDlOk'; PanelBackup = 'BtnBakOk'; PanelRestore = 'BtnResOk'; PanelFolders = 'BtnFolClose'
+                     PanelStore = 'BtnStoreSearch'; PanelDesktop = 'BtnDeskOk'; PanelClone = 'BtnCloneOk' }
 $script:OpenPanel = ''
 $script:ClosedAt = [datetime]::MinValue
 # Short questions (a message, the delete confirmation) stay a small centred
@@ -534,6 +535,9 @@ function Show-DistroPage {
     # "Open as": the saved logins, or none (you type your login yourself).
     $ui.OpenAsList.ItemsSource = @(@($accounts | ForEach-Object { $_.Username }) + $OPEN_MYSELF)
     $ui.OpenAsList.SelectedIndex = 0
+    $desk = Get-DistroDesktop $d.Name
+    $ui.DeskCurrent.Text = $(if ($desk) { "$($DESKTOP_NAMES[$desk]) - chosen in the panel. Choose desktop to switch to another one." }
+                             else { 'Not chosen in the panel yet. A desktop installed by an older version is XFCE.' })
     Update-LiveStatus
 }
 
@@ -676,8 +680,9 @@ function Complete-Open($r) {
         'NeedsInstall' {
             $script:Open.Port = $r.Port; $script:Open.IsKali = [bool]$r.IsKali
             Show-Message "$d has no desktop yet" ("This distro has no desktop server the panel knows how to open. Most distros open via xrdp (Remote Desktop); Kali opens via Win-KeX.`n`n" +
-                "The panel can download and install one now (needs internet and a few hundred MB; it can take several minutes - Arch is the slowest, because it builds xrdp).") @(
-                @{ Text = 'Install the desktop now'; Do = { Start-DesktopInstall } },
+                "The panel can download and install one now (needs internet and a few hundred MB or more; it can take several minutes - Arch is the slowest, because it builds xrdp).") @(
+                @{ Text = $(if ($r.IsKali) { 'Install the desktop now' } else { 'Choose a desktop' }); Do = {
+                    if ($script:Open.IsKali) { Start-DesktopInstall 'xfce' } else { Show-DesktopPicker $script:Open.Distro } } },
                 @{ Text = 'Open a Terminal instead'; Style = 'Btn'; Do = { $script:Open.Mode = 'Terminal'; Start-Open } },
                 @{ Text = 'Cancel' })
         }
@@ -688,14 +693,29 @@ function Complete-Open($r) {
     }
 }
 
-function Start-DesktopInstall {
-    $A = @{ Distro = $script:Open.Distro; Port = $script:Open.Port; IsKali = $script:Open.IsKali }
-    Start-Task "Installing a desktop for $($A.Distro)" { Install-DistroDesktop $A.Distro $A.Port $A.IsKali } $A {
+# Installs <desktop> into $script:Open.Distro. With $script:Open.ChangeOnly
+# (Choose desktop on the distro page) it stops there; otherwise the desktop
+# opens straight after.
+function Start-DesktopInstall([string]$desktop = 'xfce') {
+    $A = @{ Distro = $script:Open.Distro; Port = $script:Open.Port; IsKali = $script:Open.IsKali; Desktop = $desktop }
+    Start-Task "Installing $($DESKTOP_NAMES[$desktop]) for $($A.Distro)" { Install-DistroDesktop $A.Distro $A.Port $A.IsKali $A.Desktop } $A {
         param($r)
+        $name = $DESKTOP_NAMES[$r.Desktop]
         if ($r.Ok) {
-            Show-Toast 'Desktop installation finished.'
+            Show-DistroPage
+            if ($script:Open.ChangeOnly) {
+                Show-Info "$name is installed" ("$($script:Open.Distro) now starts $name when you press Open desktop.`n`n" +
+                    'If a Remote Desktop window of it is open, sign out of that desktop first (closing the window is not enough) - the next login starts the new one.')
+                return
+            }
+            Show-Toast "$name is installed."
             $script:Open.AfterInstall = $true
             Start-Open
+        } elseif ($r.ExitCode -eq 23) {
+            Show-Message "$name is not available for $($script:Open.Distro)" ("This distro has no $name session that Remote Desktop can start (for example, Fedora's KDE only runs without Remote Desktop now). " +
+                'Nothing else was changed - pick another desktop.') @(
+                @{ Text = 'Choose another'; Do = { Show-DesktopPicker $script:Open.Distro } },
+                @{ Text = 'Cancel' })
         } else {
             $msg = "Exit code $($r.ExitCode). Common causes:`n  - no internet connection inside the distro`n  - the package manager is locked by another update running now`n" +
                    "  - out of disk space`n  - Arch: building xrdp from the AUR failed (AUR_BUILD_FAILED)`n  - an unrecognised package manager (UNKNOWN_PKG_MANAGER)"
@@ -1142,6 +1162,430 @@ $ui.BtnResOk.Add_Click({
 })
 
 # ------------------------------------------------------------------------------
+# Background reads that keep the window usable (the App store's catalogue and
+# its installed list). Each runs in its own runspace with the engine loaded,
+# next to any task. Per channel only the newest answer is used, so a slow
+# older search never overwrites a newer one. $done gets ($result, $error).
+# ------------------------------------------------------------------------------
+$script:Fetches = New-Object System.Collections.ArrayList
+$script:FetchGen = @{}
+$script:FetchTimer = New-Object Windows.Threading.DispatcherTimer
+$script:FetchTimer.Interval = [TimeSpan]::FromMilliseconds(150)
+
+function Start-Fetch([string]$channel, [scriptblock]$work, [hashtable]$A, [scriptblock]$done) {
+    $gen = 1 + [int]$script:FetchGen[$channel]
+    $script:FetchGen[$channel] = $gen
+    $rs = [runspacefactory]::CreateRunspace()
+    $rs.Open()
+    $rs.SessionStateProxy.SetVariable('EnginePath', $ENGINE)
+    $rs.SessionStateProxy.SetVariable('A', $A)
+    $ps = [powershell]::Create()
+    $ps.Runspace = $rs
+    [void]$ps.AddScript(". `$EnginePath; `$ErrorActionPreference = 'Stop'`n" + $work.ToString())
+    [void]$script:Fetches.Add(@{ Ps = $ps; Rs = $rs; Handle = $ps.BeginInvoke(); Channel = $channel; Gen = $gen; Done = $done })
+    $script:FetchTimer.Start()
+}
+
+$script:FetchTimer.Add_Tick({
+    foreach ($f in @($script:Fetches)) {
+        if (-not $f.Handle.IsCompleted) { continue }
+        $script:Fetches.Remove($f)
+        $result = $null; $err = $null
+        try {
+            $out = $f.Ps.EndInvoke($f.Handle)
+            if ($out.Count) { $result = $out[$out.Count - 1] }
+            if ($result -is [psobject]) { $result = $result.PSObject.BaseObject }
+        } catch {
+            $err = $_.Exception
+            if ($err.InnerException) { $err = $err.InnerException }
+        }
+        $f.Ps.Dispose(); $f.Rs.Dispose()
+        if ($f.Gen -eq $script:FetchGen[$f.Channel]) { & $f.Done $result $err }
+    }
+    if ($script:Fetches.Count -eq 0) { $script:FetchTimer.Stop() }
+})
+
+# ------------------------------------------------------------------------------
+# App store: Flatpak apps from Flathub, installed into the distro chosen at the
+# top. Browsing is a background read; installing and removing are tasks with
+# live output, after which the store opens again where it was.
+# ------------------------------------------------------------------------------
+$StoreCategories = @(
+    @{ Text = 'Popular'; Kind = 'popular'; Value = '' }
+    @{ Text = 'Installed'; Kind = 'installed'; Value = '' }
+    @{ Text = 'Office'; Kind = 'category'; Value = 'office' }
+    @{ Text = 'Graphics'; Kind = 'category'; Value = 'graphics' }
+    @{ Text = 'Audio and video'; Kind = 'category'; Value = 'audiovideo' }
+    @{ Text = 'Internet'; Kind = 'category'; Value = 'network' }
+    @{ Text = 'Development'; Kind = 'category'; Value = 'development' }
+    @{ Text = 'Games'; Kind = 'category'; Value = 'game' }
+    @{ Text = 'Education'; Kind = 'category'; Value = 'education' }
+    @{ Text = 'Science'; Kind = 'category'; Value = 'science' }
+    @{ Text = 'Utilities'; Kind = 'category'; Value = 'utility' }
+    @{ Text = 'System'; Kind = 'category'; Value = 'system' }
+)
+$ui.StoreCats.ItemsSource = @($StoreCategories | ForEach-Object { $_.Text })
+# Distro: where apps go. Installed: id -> name. Ready: Flatpak is set up there.
+# Checked: the installed list has been read. Rows: the list shown. App: the
+# selected row. Icons: id -> icon URL seen in the catalogue. ListMsg / Note:
+# the status line.
+$script:Store = @{ Distro = ''; Installed = @{}; Ready = $false; Checked = $false; Rows = @(); App = $null
+                   Kind = ''; Icons = @{}; ListMsg = ''; Note = ''; Refreshing = $false }
+
+function Show-Store([string]$distro = '') {
+    $names = @($script:Distros | ForEach-Object { $_.Name })
+    if (-not $names.Count) { Show-Toast 'Download a distro first - apps are installed into a distro.' 'Warn'; return }
+    if (-not $distro -or $names -notcontains $distro) {
+        $cur = Get-CurrentDistro
+        $distro = $(if ($cur) { $cur.Name } else { $names[0] })
+    }
+    $script:Store.Note = ''
+    # Read the installed apps again each time: they may have changed in a terminal.
+    $script:Store.Distro = ''
+    $ui.StoreDistros.ItemsSource = $names
+    Open-Panel 'PanelStore'
+    $ui.StoreDistros.SelectedItem = $distro
+    if ($script:Store.Distro -ne $distro) { Set-StoreDistro $distro }
+    if ($ui.StoreCats.SelectedIndex -lt 0 -and -not $script:Store.Rows.Count) { $ui.StoreCats.SelectedIndex = 0 }
+    Update-StoreStatus
+    [void]$ui.StoreSearch.Focus()
+}
+
+function Update-StoreStatus {
+    $s = $script:Store
+    $parts = @()
+    if ($s.Note) { $parts += $s.Note }
+    if ($s.ListMsg) { $parts += $s.ListMsg }
+    if ($s.Distro -and -not $s.Checked) { $parts += "Checking which apps are installed in $($s.Distro) ..." }
+    elseif ($s.Distro -and -not $s.Ready) { $parts += "Flatpak is not set up in $($s.Distro) yet - the first install does that." }
+    $ui.StoreStatus.Text = $(if ($parts.Count) { $parts -join "   $MIDDOT   " } else { ' ' })
+}
+
+# Reads which store apps the distro has (starts the distro if it is stopped).
+function Set-StoreDistro([string]$distro) {
+    if (-not $distro) { return }
+    $script:Store.Distro = $distro
+    $script:Store.Installed = @{}; $script:Store.Ready = $false; $script:Store.Checked = $false
+    if ($script:Store.Kind -eq 'installed') { Show-StoreInstalledList } else { Update-StoreRows }
+    Update-StoreStatus
+    Start-Fetch 'installed' { Get-FlatpakInstalled $A.Distro } @{ Distro = $distro } {
+        param($r, $err)
+        $script:Store.Installed = $(if ($r -and $r.Apps) { $r.Apps } else { @{} })
+        $script:Store.Ready = [bool]($r -and $r.Ready)
+        $script:Store.Checked = $true
+        if ($err) { $script:Store.Note = "Could not look inside $($script:Store.Distro): $($err.Message)" }
+        if ($script:Store.Kind -eq 'installed') { Show-StoreInstalledList } else { Update-StoreRows }
+        Update-StoreStatus
+    }
+}
+
+# $kind: 'popular', 'category' ($value = a Flathub category), 'search'
+# ($value = the words) or 'installed' (no download needed).
+function Start-StoreList([string]$kind, [string]$value) {
+    $script:Store.Kind = $kind
+    $script:Store.Note = ''
+    if ($kind -eq 'installed') { Show-StoreInstalledList; return }
+    $script:Store.ListMsg = 'Loading apps from Flathub ...'
+    Update-StoreStatus
+    Start-Fetch 'list' { Get-FlathubApps $A.Kind $A.Value } @{ Kind = $kind; Value = $value } {
+        param($r, $err)
+        if ($err -or -not $r) {
+            $script:Store.Rows = @()
+            $why = $(if ($err) { $err.Message } else { 'no answer.' })
+            $script:Store.ListMsg = "Could not reach Flathub: $why Check the internet connection, then pick a category again."
+        } else {
+            $script:Store.Rows = @($r.Rows)
+            $script:Store.ListMsg = $(if ($script:Store.Rows.Count) { "$($script:Store.Rows.Count) apps" } else { 'No apps found - try other words.' })
+        }
+        Update-StoreRows
+        Update-StoreStatus
+    }
+}
+
+function Show-StoreInstalledList {
+    $s = $script:Store
+    $s.Rows = @($s.Installed.Keys | Sort-Object | ForEach-Object {
+        [pscustomobject]@{ Id = $_; Name = $s.Installed[$_]; Summary = $_; Icon = $null; Developer = ''; Badge = '' }
+    })
+    $s.ListMsg = $(if (-not $s.Checked) { '' } elseif ($s.Rows.Count) { "$($s.Rows.Count) apps installed in $($s.Distro)" } else { "No apps from the store in $($s.Distro) yet." })
+    Update-StoreRows
+    Update-StoreStatus
+}
+
+# Shows $script:Store.Rows with an "Installed" badge, keeping the selection.
+function Update-StoreRows {
+    $s = $script:Store
+    $keep = $(if ($ui.StoreList.SelectedItem) { $ui.StoreList.SelectedItem.Id } else { '' })
+    foreach ($r in $s.Rows) {
+        if ($r.Icon) { $s.Icons[$r.Id] = $r.Icon } elseif ($s.Icons.ContainsKey($r.Id)) { $r.Icon = $s.Icons[$r.Id] }
+        $r.Badge = $(if ($s.Installed.ContainsKey($r.Id)) { 'Installed' } else { '' })
+    }
+    $s.Refreshing = $true
+    try {
+        # The rows have no change notification, so the list is bound again.
+        $ui.StoreList.ItemsSource = $null
+        $ui.StoreList.ItemsSource = $s.Rows
+        $pick = @($s.Rows | Where-Object { $_.Id -eq $keep }) | Select-Object -First 1
+        if ($pick) { $ui.StoreList.SelectedItem = $pick }
+    } finally { $s.Refreshing = $false }
+    if ($ui.StoreList.SelectedItem) { $s.App = $ui.StoreList.SelectedItem } else { Show-StoreApp $null }
+    Update-StoreButtons
+}
+
+function Set-StoreImage($img, [string]$url) {
+    $img.Source = $null
+    if (-not $url) { return }
+    try {
+        $bmp = New-Object Windows.Media.Imaging.BitmapImage
+        $bmp.BeginInit(); $bmp.UriSource = [uri]$url; $bmp.EndInit()
+        $img.Source = $bmp
+    } catch { }
+}
+
+function Get-StoreSizeText($d) {
+    $parts = @()
+    if ($d.DownloadMB -gt 0) { $parts += "Download about $($d.DownloadMB) MB" }
+    if ($d.InstalledMB -gt 0) { $parts += "$($d.InstalledMB) MB on disk" }
+    $t = $parts -join ', '
+    if ($d.RuntimeName) {
+        $rtSize = $(if ($d.RuntimeMB -gt 0) { "$($d.RuntimeMB) MB, " } else { '' })
+        $rt = "Needs the shared runtime $($d.RuntimeName) (${rtSize}downloaded once per distro)"
+        $t = $(if ($t) { "$t. $rt." } else { "$rt." })
+    } elseif ($t) { $t += '.' }
+    return $t
+}
+
+# The details pane: what the row already has at once, the rest from Flathub.
+function Show-StoreApp($row) {
+    if (-not $row) {
+        $script:Store.App = $null
+        $ui.StoreDetail.Visibility = 'Collapsed'; $ui.StoreEmpty.Visibility = 'Visible'
+        return
+    }
+    $same = ($script:Store.App -and $script:Store.App.Id -eq $row.Id)
+    $script:Store.App = $row
+    $ui.StoreEmpty.Visibility = 'Collapsed'; $ui.StoreDetail.Visibility = 'Visible'
+    Update-StoreButtons
+    if ($same) { return }
+    $ui.StoreName.Text = $row.Name
+    $ui.StoreSummary.Text = $row.Summary
+    $ui.StoreDev.Text = $(if ($row.Developer) { "by $($row.Developer)" } else { $row.Id })
+    Set-StoreImage $ui.StoreIcon $row.Icon
+    Set-StoreImage $ui.StoreShot ''
+    $ui.StoreSize.Text = ''
+    $ui.StoreDesc.Text = 'Loading the details from Flathub ...'
+    Start-Fetch 'details' { Get-FlathubDetails $A.Id } @{ Id = $row.Id } {
+        param($d, $err)
+        $app = $script:Store.App
+        if (-not $app) { return }
+        if ($err -or -not $d) { $ui.StoreDesc.Text = "Could not load the details from Flathub. $(if ($err) { $err.Message })"; return }
+        if ($d.Id -ne $app.Id) { return }
+        if ($d.Name) { $ui.StoreName.Text = $d.Name }
+        if ($d.Summary) { $ui.StoreSummary.Text = $d.Summary }
+        if ($d.Developer) { $ui.StoreDev.Text = "by $($d.Developer)" }
+        if (-not $app.Icon -and $d.Icon) { Set-StoreImage $ui.StoreIcon $d.Icon; $script:Store.Icons[$d.Id] = $d.Icon }
+        $ui.StoreDesc.Text = $(if ($d.Description) { $d.Description } else { $d.Summary })
+        $ui.StoreSize.Text = Get-StoreSizeText $d
+        Set-StoreImage $ui.StoreShot $d.Screenshot
+    }
+}
+
+function Update-StoreButtons {
+    $s = $script:Store
+    $has = [bool]($s.App -and $s.Installed.ContainsKey($s.App.Id))
+    # Nothing can be installed until the installed list is known.
+    $ok = [bool]($s.Distro -and $s.Checked)
+    $ui.BtnStoreInstall.Visibility = $(if ($has) { 'Collapsed' } else { 'Visible' })
+    $ui.BtnStoreOpen.Visibility = $(if ($has) { 'Visible' } else { 'Collapsed' })
+    $ui.BtnStoreRemove.Visibility = $(if ($has) { 'Visible' } else { 'Collapsed' })
+    $ui.BtnStoreInstall.IsEnabled = $ok
+    $ui.BtnStoreRemove.IsEnabled = $ok
+    $ui.BtnStoreInstall.Content = $(if ($s.Distro) { "Install in $($s.Distro)" } else { 'Install' })
+}
+
+function Start-StoreJob([string]$action) {
+    $app = $script:Store.App
+    if (-not $app) { return }
+    $script:StoreJob = @{ Distro = $script:Store.Distro; Id = $app.Id; Name = $app.Name; Action = $action }
+    $verb = $(if ($action -eq 'install') { 'Installing' } else { 'Uninstalling' })
+    Start-Task "$verb $($app.Name) in $($script:Store.Distro)" { Invoke-FlatpakAction $A.Distro $A.Action $A.Id } $script:StoreJob.Clone() {
+        param($r)
+        $j = $script:StoreJob
+        Update-DistroList
+        if ($r.Ok) {
+            if ($j.Action -eq 'install') {
+                $script:Store.Installed[$j.Id] = $j.Name; $script:Store.Ready = $true
+                $script:Store.Note = "$($j.Name) is installed. Press Open, or find it in the Windows Start menu under '$($j.Distro)'."
+            } else {
+                $script:Store.Installed.Remove($j.Id)
+                $script:Store.Note = "$($j.Name) was uninstalled from $($j.Distro)."
+            }
+            Open-Panel 'PanelStore'
+            if ($script:Store.Kind -eq 'installed') { Show-StoreInstalledList } else { Update-StoreRows }
+            Update-StoreStatus
+        } else {
+            $msg = "Exit code $($r.ExitCode). Common causes:`n  - no internet connection inside the distro, or Flathub could not be reached (FLATHUB_UNREACHABLE)`n" +
+                   "  - the package manager is locked by another update running now (wait a few minutes, then try again)`n  - out of disk space"
+            if ($r.Log) { $msg += "`n`nThe full output is saved in:`n$($r.Log)" }
+            $what = $(if ($j.Action -eq 'install') { 'installed' } else { 'uninstalled' })
+            Show-Failure "$($j.Name) could not be $what" $msg
+        }
+    }
+}
+
+$ui.BtnStore.Add_Click({ Show-Store })
+$ui.BtnDistroStore.Add_Click({ $d = Get-CurrentDistro; if ($d) { Show-Store $d.Name } })
+$ui.StoreDistros.Add_SelectionChanged({
+    $n = [string]$ui.StoreDistros.SelectedItem
+    if ($n -and $n -ne $script:Store.Distro) { $script:Store.Note = ''; Set-StoreDistro $n }
+})
+$ui.StoreCats.Add_SelectionChanged({
+    $i = $ui.StoreCats.SelectedIndex
+    if ($i -ge 0) { $c = $StoreCategories[$i]; Start-StoreList $c.Kind $c.Value }
+})
+$ui.BtnStoreSearch.Add_Click({
+    $q = $ui.StoreSearch.Text.Trim()
+    if (-not $q) { [void]$ui.StoreSearch.Focus(); return }
+    $ui.StoreCats.SelectedIndex = -1
+    Start-StoreList 'search' $q
+})
+$ui.StoreList.Add_SelectionChanged({ if (-not $script:Store.Refreshing) { Show-StoreApp $ui.StoreList.SelectedItem } })
+$ui.BtnStoreInstall.Add_Click({ Start-StoreJob 'install' })
+$ui.BtnStoreRemove.Add_Click({
+    $app = $script:Store.App
+    if (-not $app) { return }
+    Show-Message "Uninstall $($app.Name)?" "This removes $($app.Name) from $($script:Store.Distro), and any shared runtime no other app needs any more. Its settings in your Linux home folder stay." @(
+        @{ Text = 'Uninstall'; Style = 'DangerBtn'; Do = { Start-StoreJob 'remove' } },
+        @{ Text = 'Cancel'; Do = { Open-Panel 'PanelStore' } })
+})
+$ui.BtnStoreOpen.Add_Click({
+    $app = $script:Store.App
+    if (-not $app) { return }
+    Open-FlatpakApp $script:Store.Distro $app.Id
+    $script:Store.Note = "Starting $($app.Name) - its window appears in a few seconds (the first start takes longer)."
+    Update-StoreStatus
+})
+$ui.BtnStoreWeb.Add_Click({ if ($script:Store.App) { Start-Process "https://flathub.org/apps/$($script:Store.App.Id)" } })
+$ui.BtnStoreClose.Add_Click({ Close-Dialog })
+
+# ------------------------------------------------------------------------------
+# Desktop picker: a card per desktop with a sketch of its default layout and
+# rough ratings (out of five).
+# ------------------------------------------------------------------------------
+function Get-Dots([int]$n) { return ([string][char]0x25CF) * $n + ([string][char]0x25CB) * (5 - $n) }
+$DesktopCards = @(
+    @{ Id = 'xfce'; Looks = 'Classic: a menu bar on top and a dock below'; W = 3; M = 2; C = 4; L = 4; Size = 'about 400 MB'
+       Note = 'The panel''s standard desktop. Works on every distro the panel supports.'
+       Wall = '#FF2F5D8A'; Top = 'Visible'; Bottom = 'Collapsed'; Dock = 'Visible'; Corner = '3'; StartColor = '#FFBDBDBD' }
+    @{ Id = 'kde'; Looks = 'The closest to Windows 10 and 11'; W = 5; M = 3; C = 5; L = 2; Size = 'about 1 - 1.5 GB'
+       Note = 'Can be themed to look like almost anything. Not on Fedora: its KDE has no Remote Desktop (X11) session any more.'
+       Wall = '#FF1D3A6E'; Top = 'Collapsed'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '6'; StartColor = '#FF3DAEE9' }
+    @{ Id = 'cinnamon'; Looks = 'Like Windows 10: simple and familiar'; W = 4; M = 1; C = 3; L = 3; Size = 'about 700 MB'
+       Note = 'Easy for people coming from Windows - the desktop of Linux Mint.'
+       Wall = '#FF3B6E4F'; Top = 'Collapsed'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '6'; StartColor = '#FF8FC04A' }
+    @{ Id = 'mate'; Looks = 'Old-school: one panel on top, one at the bottom'; W = 3; M = 1; C = 3; L = 4; Size = 'about 450 MB'
+       Note = 'Stable and light; keeps the classic GNOME 2 look.'
+       Wall = '#FF4E6B35'; Top = 'Visible'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '2'; StartColor = '#FF9CCB6B' }
+    @{ Id = 'lxqt'; Looks = 'A basic Windows-style taskbar'; W = 4; M = 1; C = 2; L = 5; Size = 'about 250 MB'
+       Note = 'The lightest choice - best for older or slower PCs.'
+       Wall = '#FF54456E'; Top = 'Collapsed'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '2'; StartColor = '#FF4A90D9' }
+)
+
+$script:DeskDistro = ''
+function Show-DesktopPicker([string]$distro) {
+    $script:DeskDistro = $distro
+    $cur = Get-DistroDesktop $distro
+    $rows = @(foreach ($c in $DesktopCards) {
+        [pscustomobject]@{ Id = $c.Id; Name = $DESKTOP_NAMES[$c.Id]; Looks = $c.Looks; Note = $c.Note; Size = $c.Size
+                           Windows = (Get-Dots $c.W); Mac = (Get-Dots $c.M); Custom = (Get-Dots $c.C); Light = (Get-Dots $c.L)
+                           Wall = $c.Wall; Top = $c.Top; Bottom = $c.Bottom; Dock = $c.Dock; StartAlign = 'Left'; StartColor = $c.StartColor
+                           WinCorner = $c.Corner; TitleCorner = "$($c.Corner),$($c.Corner),0,0"
+                           Badge = $(if ($c.Id -eq $cur) { 'Current' } else { '' }) }
+    })
+    $ui.DeskTitle.Text = "Choose a desktop for $distro"
+    $ui.DeskList.ItemsSource = $rows
+    $pick = @($rows | Where-Object { $_.Id -eq $cur }) | Select-Object -First 1
+    if ($pick) { $ui.DeskList.SelectedItem = $pick } else { $ui.DeskList.SelectedIndex = 0 }
+    Update-DeskForm
+    Open-Panel 'PanelDesktop'
+}
+function Update-DeskForm {
+    $sel = $ui.DeskList.SelectedItem
+    $ui.BtnDeskOk.IsEnabled = ($null -ne $sel)
+    $ui.BtnDeskOk.Content = $(if ($sel) { "Install $($sel.Name)" } else { 'Install' })
+}
+$ui.DeskList.Add_SelectionChanged({ Update-DeskForm })
+$ui.BtnDeskCancel.Add_Click({ Close-Dialog })
+$ui.BtnDeskOk.Add_Click({ $sel = $ui.DeskList.SelectedItem; if ($sel) { Start-DesktopInstall $sel.Id } })
+$ui.BtnChooseDesktop.Add_Click({
+    $d = (Get-CurrentDistro).Name
+    $script:Open = @{ Distro = $d; Account = (Get-OpenAsAccount); Mode = 'Desktop'; AfterInstall = $false; SkipFirstUser = $false
+                      Port = (Get-DistroPort $d); IsKali = $false; ChangeOnly = $true }
+    Start-Task "Checking $d" { Test-KaliDistro $A.Distro } @{ Distro = $d } {
+        param($kali)
+        if ($kali) {
+            Show-Info 'Kali has its own desktop' ("$($script:Open.Distro) is Kali Linux, which opens Kali's own XFCE through Win-KeX. " +
+                'Press Open desktop: it installs that desktop the first time.')
+        } else { Show-DesktopPicker $script:Open.Distro }
+    }
+})
+
+# ------------------------------------------------------------------------------
+# Clone: a full copy of the distro under a new name
+# ------------------------------------------------------------------------------
+$script:CloneSrc = ''; $script:CloneBase = ''
+function Get-FreeCloneName([string]$name) {
+    $names = @(Get-WslDistros | ForEach-Object { $_.Name })
+    $n = "$name-copy"; $i = 2
+    while ($names -contains $n) { $n = "$name-copy$i"; $i++ }
+    return $n
+}
+# The folder is never filled in for you: Clone stays off until you choose one.
+function Update-CloneForm {
+    $name = $ui.CloneName.Text.Trim()
+    $ui.CloneFolder.Text = $(if (-not $script:CloneBase) { $NO_FOLDER } elseif ($name) { Join-Path $script:CloneBase $name } else { $script:CloneBase })
+    $ui.BtnCloneOk.IsEnabled = [bool]((Test-DistroName $name) -and $script:CloneBase)
+}
+$ui.BtnClone.Add_Click({
+    $d = Get-CurrentDistro
+    if (-not $d) { return }
+    $script:CloneSrc = $d.Name; $script:CloneBase = ''
+    $ui.CloneTitle.Text = "Clone $($d.Name)"
+    $ui.CloneName.Text = Get-FreeCloneName $d.Name
+    $gb = [double](Get-DistroVhdInfo $d.Name).SizeGB
+    $ui.CloneWarn.Text = ("Needs about {0:N1} GB of free space where you store the copy. The distro is stopped while it is copied, so an open desktop or terminal closes. Save your work." -f $gb)
+    Update-CloneForm
+    Open-Panel 'PanelClone'
+    [void]$ui.CloneName.Focus()
+})
+$ui.CloneName.Add_TextChanged({ Update-CloneForm })
+$ui.BtnCloneFolder.Add_Click({
+    $f = Select-Folder 'Where should the copy be stored? (a folder named after it is created inside)' $Global:Config.WslBase
+    if ($f) { $script:CloneBase = $f; Update-CloneForm }
+})
+$ui.BtnCloneCancel.Add_Click({ Close-Dialog })
+$ui.BtnCloneOk.Add_Click({
+    $A = @{ Source = $script:CloneSrc; Name = $ui.CloneName.Text.Trim() }
+    $A.Loc = Join-Path $script:CloneBase $A.Name
+    $problem = Get-CloneProblem $A.Source $A.Name $A.Loc
+    if (-not $problem) { $problem = Set-DataFolder 'WslBase' $script:CloneBase }
+    if ($problem) { Show-Toast $problem 'Error'; return }
+    $script:CloneJob = $A
+    Start-Task "Cloning $($A.Source) as $($A.Name)" { Copy-WslDistro $A.Source $A.Name $A.Loc } $A.Clone() {
+        param($r)
+        $j = $script:CloneJob
+        if ($r.Ok) { $script:SelectNext = $j.Name }
+        Update-DistroList
+        if ($r.Ok) {
+            Show-Info "$($j.Name) is ready" ("A full copy of $($j.Source), stored in $($j.Loc).`n`n" +
+                "It logs in like the original and has its saved logins. It uses Remote Desktop port $($r.Port), so both desktops can be open at once.")
+        } else {
+            Show-Failure "The clone FAILED (exit code $($r.ExitCode))" "Common causes: not enough free space in $($j.Loc), or that folder cannot be written to. $($j.Source) itself was not changed."
+        }
+    }
+})
+
+# ------------------------------------------------------------------------------
 # Sidebar: the other tools
 # ------------------------------------------------------------------------------
 $ui.BtnCloseRun.Add_Click({
@@ -1394,6 +1838,28 @@ if ($Validate) {
     Update-LiveStatus; [void](Get-WslMemoryLimitGB)
     Update-DownloadForm; Update-BackupForm; Update-RestoreForm
     if ($ui.BtnDlOk.IsEnabled -or $ui.BtnBakOk.IsEnabled -or $ui.BtnResOk.IsEnabled) { throw 'A save button is on before a folder was chosen.' }
+    # App store, desktop picker and clone - without the network or a real distro.
+    if ((ConvertFrom-FlathubHtml '<p>One &amp; two</p><ul><li>three</li></ul>') -cne "One & two`n`n  - three") { throw 'Flathub descriptions are not turned into text correctly.' }
+    if (-not (Test-FlatpakId 'org.gimp.GIMP') -or (Test-FlatpakId 'org.x;rm -rf') -or (Test-FlatpakId 'short')) { throw 'Test-FlatpakId accepts the wrong ids.' }
+    [void](Get-ScriptText 'flatpak.sh')
+    $script:Store.Distro = 'TestDistro'; $script:Store.Checked = $true; $script:Store.Ready = $true
+    $script:Store.Installed = @{ 'org.example.Two' = 'Two' }
+    $script:Store.Rows = @(
+        [pscustomobject]@{ Id = 'org.example.One'; Name = 'One'; Summary = 'First'; Icon = $null; Developer = ''; Badge = '' },
+        [pscustomobject]@{ Id = 'org.example.Two'; Name = 'Two'; Summary = 'Second'; Icon = $null; Developer = ''; Badge = '' })
+    Open-Panel 'PanelStore'; Update-StoreRows; Update-StoreStatus
+    if ($script:Store.Rows[1].Badge -ne 'Installed' -or $script:Store.Rows[0].Badge) { throw 'The store did not mark the installed app.' }
+    if ($ui.StoreList.Items.Count -ne 2) { throw 'The store list did not show the apps.' }
+    Show-StoreInstalledList
+    if ($script:Store.Rows.Count -ne 1) { throw 'The Installed list is wrong.' }
+    Show-DesktopPicker 'TestDistro'
+    if ($ui.DeskList.Items.Count -ne $DESKTOP_IDS.Count) { throw 'The desktop picker does not show every desktop.' }
+    $ui.DeskList.SelectedIndex = 1
+    if ([string]$ui.BtnDeskOk.Content -ne 'Install KDE Plasma') { throw 'The desktop picker button does not follow the choice.' }
+    if ((Get-Dots 3).Length -ne 5) { throw 'Get-Dots is wrong.' }
+    $script:CloneBase = ''; $ui.CloneName.Text = 'TestDistro-copy'; Open-Panel 'PanelClone'; Update-CloneForm
+    if ($ui.BtnCloneOk.IsEnabled) { throw 'Clone is on before a folder was chosen.' }
+    Close-Dialog
     $win.WindowState = 'Maximized'; Update-MaximizedMargin; $win.WindowState = 'Normal'
     Show-UpdateCard @{ Version = '999.0.0'; Page = ''; Url = '' }
     if ($ui.UpdateCard.Visibility -ne 'Visible') { throw 'The update card did not show.' }

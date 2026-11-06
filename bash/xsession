@@ -1,5 +1,5 @@
 # Written by the WSL Control Panel as ~/.xsession and ~/.xinitrc.
-# Force X11 so XFCE renders inside Remote Desktop (xrdp), not via WSLg Wayland.
+# Force X11 so the desktop renders inside Remote Desktop (xrdp), not via WSLg Wayland.
 unset WAYLAND_DISPLAY
 export GDK_BACKEND=x11
 export QT_QPA_PLATFORM=xcb
@@ -10,4 +10,15 @@ if [ -e /mnt/wslg/PulseServer ]; then
     export PULSE_SERVER=/mnt/wslg/PulseServer
 fi
 
-exec startxfce4
+# The desktop chosen in the panel (install-desktop.sh writes its start
+# command here); XFCE when none was chosen or that desktop is gone.
+SESSION=startxfce4
+if [ -r /etc/wsl-panel-session ]; then
+    read -r CHOSEN < /etc/wsl-panel-session
+    case "$CHOSEN" in
+        startxfce4|startplasma-x11|cinnamon-session|mate-session|startlxqt)
+            command -v "$CHOSEN" >/dev/null 2>&1 && SESSION="$CHOSEN" ;;
+    esac
+fi
+
+exec "$SESSION"

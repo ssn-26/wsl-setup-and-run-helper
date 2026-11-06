@@ -1,31 +1,75 @@
 #!/bin/bash
 # ==============================================================================
 # install-desktop.sh
-# Auto-installs XFCE desktop + xrdp on any major Linux distribution under WSL.
+# Auto-installs a desktop + xrdp on any major Linux distribution under WSL.
+# Desktops: xfce (default), kde (KDE Plasma), cinnamon, mate, lxqt.
 # Configures xrdp to listen on specified port (default: 3390).
+# Records the chosen desktop in /etc/wsl-panel-session, which the session file
+# (bash/xsession) reads, so Remote Desktop starts that desktop.
 # Configures Polkit to suppress annoying authentication prompts (colord/packagekit).
 # Configures WSLg PulseAudio forwarding for sound support.
 #
-# Usage: ./install-desktop.sh [PORT]
-# Example: ./install-desktop.sh 3390
+# Usage: ./install-desktop.sh [PORT] [DESKTOP]
+# Example: ./install-desktop.sh 3390 kde
+# Exit codes: 21 unknown package manager, 22 unknown desktop, 23 that desktop
+# is not available for this distro, 20 AUR build failed (Arch).
 # ==============================================================================
 
 PORT="${1:-3390}"
-echo "==> Starting desktop environment installation (Target Port: $PORT)..."
+DESKTOP="${2:-xfce}"
+
+# The command that starts each desktop in an X11 session (xrdp has no Wayland).
+case "$DESKTOP" in
+    xfce)     SESSION=startxfce4 ;;
+    kde)      SESSION=startplasma-x11 ;;
+    cinnamon) SESSION=cinnamon-session ;;
+    mate)     SESSION=mate-session ;;
+    lxqt)     SESSION=startlxqt ;;
+    *) echo "UNKNOWN_DESKTOP: $DESKTOP"; exit 22 ;;
+esac
+echo "==> Starting desktop installation: $DESKTOP (Target Port: $PORT)..."
+
+not_available() {
+    echo "DESKTOP_NOT_AVAILABLE: the $DESKTOP desktop is not available for this distro. Pick another one."
+    exit 23
+}
+
+# Tries each package list in turn until one installs (names differ between
+# releases). $1 is the install command, the rest are quoted package lists.
+try_lists() {
+    cmd="$1"; shift
+    for list in "$@"; do
+        # shellcheck disable=SC2086
+        $cmd $list && return 0
+        echo "==> '$list' did not install - trying the next name..."
+    done
+    return 1
+}
 
 # 1. Package manager installers
 install_apt() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y xfce4 xfce4-goodies xrdp dbus-x11
+    apt-get install -y xrdp dbus-x11
+    case "$DESKTOP" in
+        xfce)     try_lists "apt-get install -y" "xfce4 xfce4-goodies" ;;
+        kde)      try_lists "apt-get install -y" "kde-plasma-desktop" "plasma-desktop" ;;
+        cinnamon) try_lists "apt-get install -y" "cinnamon-core" "cinnamon" ;;
+        mate)     try_lists "apt-get install -y" "mate-desktop-environment-core" "mate-desktop-environment" ;;
+        lxqt)     try_lists "apt-get install -y" "lxqt-core" "lxqt" ;;
+    esac
 }
 
 install_dnf() {
     dnf install -y xrdp xorgxrdp
-    dnf group install -y "Xfce Desktop" || dnf groupinstall -y "Xfce" || dnf install -y @xfce-desktop-environment
+    case "$DESKTOP" in
+        xfce) dnf group install -y "Xfce Desktop" || dnf groupinstall -y "Xfce" || dnf install -y @xfce-desktop-environment ;;
+        *)    dnf install -y "@${DESKTOP}-desktop-environment" || dnf group install -y "${DESKTOP}-desktop-environment" ;;
+    esac
 }
 
 install_yum() {
+    [ "$DESKTOP" = xfce ] || not_available
     yum install -y epel-release || true
     yum groupinstall -y "Xfce" || true
     yum install -y xrdp
@@ -33,7 +77,13 @@ install_yum() {
 
 install_zypper() {
     zypper --non-interactive install xrdp
-    zypper --non-interactive install -t pattern xfce
+    case "$DESKTOP" in
+        xfce)     zypper --non-interactive install -t pattern xfce ;;
+        kde)      zypper --non-interactive install -t pattern kde_plasma || zypper --non-interactive install plasma6-session plasma6-session-x11 ;;
+        cinnamon) zypper --non-interactive install -t pattern cinnamon || zypper --non-interactive install cinnamon ;;
+        mate)     zypper --non-interactive install -t pattern mate || zypper --non-interactive install mate-session-manager ;;
+        lxqt)     zypper --non-interactive install -t pattern lxqt || zypper --non-interactive install lxqt-session ;;
+    esac
 }
 
 arch_keyring() {
@@ -46,7 +96,15 @@ arch_keyring() {
 
 install_pacman() {
     arch_keyring
-    pacman -Syu --needed --noconfirm base-devel git sudo xfce4 xorg-server
+    pacman -Syu --needed --noconfirm base-devel git sudo xorg-server
+    case "$DESKTOP" in
+        xfce)     try_lists "pacman -S --needed --noconfirm" "xfce4" ;;
+        # Plasma 6.4 moved the X11 session into its own package.
+        kde)      try_lists "pacman -S --needed --noconfirm" "plasma-desktop plasma-x11-session" "plasma-desktop" ;;
+        cinnamon) try_lists "pacman -S --needed --noconfirm" "cinnamon" ;;
+        mate)     try_lists "pacman -S --needed --noconfirm" "mate" ;;
+        lxqt)     try_lists "pacman -S --needed --noconfirm" "lxqt" ;;
+    esac
     
     # Create temporary unprivileged user to build AUR packages
     id -u aurbuild >/dev/null 2>&1 || useradd -r -m -s /bin/bash aurbuild
@@ -112,6 +170,20 @@ else
 fi
 set +e
 
+# Some distros ship a desktop without its X11 session (Fedora's KDE is
+# Wayland-only): Remote Desktop could not start it, so say so.
+if ! command -v "$SESSION" >/dev/null 2>&1; then
+    not_available
+fi
+echo "$SESSION" > /etc/wsl-panel-session
+chmod 644 /etc/wsl-panel-session
+
+# A login screen (display manager) has no screen to show in WSL and only fails
+# at every start; Remote Desktop logs in through xrdp instead.
+for dm in sddm lightdm gdm gdm3 lxdm slim; do
+    systemctl disable --now "$dm" >/dev/null 2>&1 || true
+done
+
 # 2. Configure XRDp port in /etc/xrdp/xrdp.ini
 if [ -f /etc/xrdp/xrdp.ini ]; then
     echo "==> Configuring xrdp to listen on port $PORT..."
@@ -144,7 +216,7 @@ polkit.addRule(function(action, subject) {
 });
 JS_POLKIT_EOF
 
-# 4. Configure default XFCE session files (.xsession & .xinitrc)
+# 4. Configure the desktop session files (.xsession & .xinitrc)
 # The panel puts a write_session function (printing bash/xsession) in front of
 # this script. Run by hand, read that file from next to this script instead.
 if ! declare -F write_session >/dev/null; then
