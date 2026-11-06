@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 
 # Shown in the window, so a bug report can say which version it was.
 # Raise it with each change you share.
-$PANEL_VERSION = '2.3.0'
+$PANEL_VERSION = '2.3.1'
 # Where releases are published (the Update button gets them from here).
 $RELEASES_REPO = 'ssn-26/wsl-setup-and-run-helper'
 $SETUP_ASSET = 'WSL-Control-Panel-Setup.exe'
@@ -277,10 +277,21 @@ $DefaultButtons = @{ PanelMessage = 'MsgB1'; PanelUser = 'BtnUserOk'; PanelDelet
                      PanelDownload = 'BtnDlOk'; PanelBackup = 'BtnBakOk'; PanelRestore = 'BtnResOk'; PanelFolders = 'BtnFolClose' }
 $script:OpenPanel = ''
 $script:ClosedAt = [datetime]::MinValue
+# Short questions (a message, the delete confirmation) stay a small centred
+# card; every tool dialog fills the window, leaving a margin round the edge.
+$CompactPanels = 'PanelMessage', 'PanelDelete'
 function Open-Panel([string]$name, [int]$width = 520) {
     foreach ($p in $Panels) { $ui[$p].Visibility = 'Collapsed' }
     $ui[$name].Visibility = 'Visible'
-    $ui.DialogCard.Width = $width
+    if ($CompactPanels -contains $name) {
+        $ui.DialogCard.Width = $width
+        $ui.DialogCard.HorizontalAlignment = 'Center'
+        $ui.DialogCard.VerticalAlignment = 'Center'
+    } else {
+        $ui.DialogCard.Width = [double]::NaN
+        $ui.DialogCard.HorizontalAlignment = 'Stretch'
+        $ui.DialogCard.VerticalAlignment = 'Stretch'
+    }
     $script:OpenPanel = $name
     $wasOpen = ($ui.Overlay.Visibility -eq 'Visible')
     $ui.Overlay.Visibility = 'Visible'
