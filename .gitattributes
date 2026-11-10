@@ -26,3 +26,4 @@ README.md export-ignore
 LICENSE export-ignore
 installer/ export-ignore
 docs/ export-ignore
+CHANGELOG.md export-ignore

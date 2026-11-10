@@ -27,6 +27,8 @@ $PANEL_VERSION = '2.5.0'
 # Where releases are published (the Update button gets them from here).
 $RELEASES_REPO = 'ssn-26/wsl-setup-and-run-helper'
 $SETUP_ASSET = 'WSL-Control-Panel-Setup.exe'
+# The release's checksums: the updater installs a Setup only when its SHA-256 is listed here.
+$SUMS_ASSET = 'WSL-Control-Panel-SHA256SUMS.txt'
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
@@ -1721,16 +1723,18 @@ $script:UpdTimer.Interval = [TimeSpan]::FromMilliseconds(500)
 function Start-UpdateCheck {
     $ps = [powershell]::Create()
     [void]$ps.AddScript({
-        param($repo, $asset)
+        param($repo, $asset, $sumsAsset)
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
             $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -TimeoutSec 15 -UseBasicParsing `
                                    -Headers @{ 'User-Agent' = 'WSL-Control-Panel' }
             $file = @($r.assets | Where-Object { $_.name -eq $asset }) | Select-Object -First 1
+            $sums = @($r.assets | Where-Object { $_.name -eq $sumsAsset }) | Select-Object -First 1
             @{ Version = ([string]$r.tag_name).TrimStart('v'); Page = [string]$r.html_url
-               Url = $(if ($file) { [string]$file.browser_download_url } else { '' }) }
+               Url = $(if ($file) { [string]$file.browser_download_url } else { '' })
+               SumsUrl = $(if ($sums) { [string]$sums.browser_download_url } else { '' }) }
         } catch { $null }   # offline, or GitHub busy: just no update card
-    }.ToString()).AddArgument($RELEASES_REPO).AddArgument($SETUP_ASSET)
+    }.ToString()).AddArgument($RELEASES_REPO).AddArgument($SETUP_ASSET).AddArgument($SUMS_ASSET)
     $script:UpdPs = $ps
     $script:UpdHandle = $ps.BeginInvoke()
     $script:UpdTimer.Start()
@@ -1756,24 +1760,51 @@ function Show-UpdateCard($r) {
 }
 
 $ui.BtnUpdateNotes.Add_Click({ if ($script:Update.Page) { Start-Process $script:Update.Page } })
+# How this copy was installed: 'Setup' (the Setup wizard), 'Script' (the
+# PowerShell install line), 'Portable' (an unzipped portable copy) or
+# 'Source' (an unzipped copy of the code, started with the .bat).
+function Get-InstallKind {
+    if (-not (Test-Path -LiteralPath (Join-Path $ROOT_DIR 'WSL Control Panel.exe'))) { return 'Source' }
+    if (Test-Path -LiteralPath (Join-Path $ROOT_DIR 'unins000.exe')) { return 'Setup' }
+    if (Test-Path -LiteralPath (Join-Path $ROOT_DIR 'install.ps1')) { return 'Script' }
+    return 'Portable'
+}
+
 $ui.BtnAppUpdate.Add_Click({
     $u = $script:Update
-    # Started from an unzipped copy (no installed app) or no Setup attached:
-    # open the release page instead.
-    if (-not $u.Url -or -not (Test-Path -LiteralPath (Join-Path $ROOT_DIR 'WSL Control Panel.exe'))) {
+    # A portable or unzipped copy is not installed, so the Setup must not run
+    # over it: open the release page to download the new version instead. The
+    # same when the release has no Setup or no checksums to check it with.
+    if (-not $u.Url -or -not $u.SumsUrl -or (Get-InstallKind) -in 'Portable', 'Source') {
         Start-Process $(if ($u.Page) { $u.Page } else { "https://github.com/$RELEASES_REPO/releases/latest" }); return
     }
     Start-Task "Downloading version $($u.Version)" {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $file = Join-Path $env:TEMP 'WSL-Control-Panel-Setup.exe'
+        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
         Write-TaskLog "Downloading $($A.Url)"
         $ProgressPreference = 'SilentlyContinue'
         Invoke-WebRequest -Uri $A.Url -OutFile $file -UseBasicParsing
-        Write-TaskLog 'Downloaded. Installing the update - the app closes and opens again by itself.'
+        # Installed only if it is exactly the file the release lists (a broken
+        # or swapped download never runs).
+        Write-TaskLog 'Checking its SHA-256 fingerprint against the release checksums ...'
+        $sums = (Invoke-WebRequest -Uri $A.SumsUrl -UseBasicParsing).Content
+        if ($sums -is [byte[]]) { $sums = [System.Text.Encoding]::UTF8.GetString($sums) }
+        $expected = ''
+        foreach ($line in ($sums -split "`r?`n")) {
+            if ($line -match '^([0-9a-fA-F]{64})\s+\*?(\S.*)$' -and $Matches[2].Trim() -eq $A.Name) { $expected = $Matches[1].ToLowerInvariant() }
+        }
+        $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+        if (-not $expected -or $actual -ne $expected) {
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+            Write-TaskLog $(if ($expected) { 'The fingerprint does not match - the download is damaged. It was deleted.' } else { "The release lists no fingerprint for $($A.Name)." })
+            return ''
+        }
+        Write-TaskLog 'Verified. Installing the update - the app closes and opens again by itself.'
         $file
-    } @{ Url = $u.Url } {
+    } @{ Url = $u.Url; SumsUrl = $u.SumsUrl; Name = $SETUP_ASSET } {
         param($file)
-        if (-not $file -or -not (Test-Path -LiteralPath $file)) { Show-Failure 'The update could not be downloaded' 'Check your internet connection and try again later.'; return }
+        if (-not $file -or -not (Test-Path -LiteralPath $file)) { Show-Failure 'The update was not installed' 'The download did not arrive complete, or it did not match the fingerprint the release lists. Nothing was changed - try again later.'; return }
         Start-Process -FilePath $file -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', "/DIR=""$ROOT_DIR""", '/relaunch=1'
         $win.Close()
     }
@@ -1861,7 +1892,8 @@ if ($Validate) {
     if ($ui.BtnCloneOk.IsEnabled) { throw 'Clone is on before a folder was chosen.' }
     Close-Dialog
     $win.WindowState = 'Maximized'; Update-MaximizedMargin; $win.WindowState = 'Normal'
-    Show-UpdateCard @{ Version = '999.0.0'; Page = ''; Url = '' }
+    if ((Get-InstallKind) -notin 'Setup', 'Script', 'Portable', 'Source') { throw 'Get-InstallKind is wrong.' }
+    Show-UpdateCard @{ Version = '999.0.0'; Page = ''; Url = ''; SumsUrl = '' }
     if ($ui.UpdateCard.Visibility -ne 'Visible') { throw 'The update card did not show.' }
     Show-UpdateCard @{ Version = $PANEL_VERSION; Page = ''; Url = '' }
     if ($ui.UpdateCard.Visibility -eq 'Visible') { throw 'The update card showed for the same version.' }

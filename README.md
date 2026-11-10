@@ -10,10 +10,28 @@ Windows 11-style window with buttons.
 
 1. Open the downloaded **WSL-Control-Panel-Setup.exe**.
 2. Click **Next**, then **Browse** to choose where to put the app (there is no
-   default folder - you pick it), then **Install** and **Finish**.
+   default folder - you pick it), choose whether you want a desktop shortcut,
+   then **Install** and **Finish**.
 3. WSL Control Panel opens. Later, open it from the Start menu or the desktop.
 
 No administrator rights needed. Windows 10 and 11.
+
+**Rather not install anything?** Download
+[WSL-Control-Panel-Portable.zip](https://github.com/ssn-26/wsl-setup-and-run-helper/releases/latest/download/WSL-Control-Panel-Portable.zip),
+unzip it anywhere (a USB stick works too) and run **WSL Control Panel.exe**.
+Its settings and saved logins stay in that folder. A portable copy doesn't
+update itself: when a new version is out, its **Update now** opens the
+download page.
+
+**Checking a download:** every release lists the SHA-256 fingerprints of its
+files in `WSL-Control-Panel-SHA256SUMS.txt`. In PowerShell,
+`Get-FileHash .\WSL-Control-Panel-Setup.exe` must show the same value. The
+app's own **Update now** checks this by itself and refuses a download that
+doesn't match.
+
+**Silent install** (for scripts): `WSL-Control-Panel-Setup.exe /VERYSILENT
+/SUPPRESSMSGBOXES /DIR="D:\Apps\WSL Control Panel"`. Add
+`/MERGETASKS=!desktopicon` for no desktop shortcut.
 
 > **If Windows shows "Windows protected your PC"**, click **More info**, then
 > **Run anyway**. This appears because the Setup is not signed with a paid
@@ -208,6 +226,23 @@ with **every** distro. The desktop setup is distro-specific:
 
 "Tested" means verified on a fresh throwaway copy of that distro. The final
 Remote Desktop *login* itself is still to be confirmed by hand.
+
+---
+
+## Making a release
+
+1. Raise `$PANEL_VERSION` in `powershell\WSL-Control-Panel.ps1` (and the two
+   `vX.Y.Z` texts in `ui\MainWindow.xaml`).
+2. Add a `## X.Y.Z` section to `CHANGELOG.md`: what changed, for people using
+   the app. It becomes the release notes.
+3. Merge to `main`, then tag it and push the tag:
+   `git tag vX.Y.Z` and `git push origin vX.Y.Z`.
+
+GitHub then checks that the tag matches the version, runs the panel's
+self-test, builds the Setup, the portable zip and the checksums, and
+publishes the release with them. Installed copies see it and offer
+**Update now**. (Updates only reach people if this repository is public: the
+app asks GitHub for the latest release without signing in.)
 
 ---
 

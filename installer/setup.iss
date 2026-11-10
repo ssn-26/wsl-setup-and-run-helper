@@ -3,7 +3,7 @@
 ;
 ; Built by installer\build-setup.ps1 (on GitHub for every release), which
 ; passes AppVersion, Stage (the folder with the app's files) and Icon.
-; Screens: Welcome -> where to install -> Finish. On a first install the
+; Screens: Welcome -> where to install -> shortcuts -> Finish. On a first install the
 ; folder box starts empty: the user must choose (Browse or type) where the app
 ; goes. Updates reuse the folder chosen then and skip that page.
 ; Installs for the current user only, so Windows asks for no administrator
@@ -81,9 +81,13 @@ Type: files; Name: "{app}\LICENSE"
 [Files]
 Source: "{#Stage}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Tasks]
+; On by default. An update keeps the choice made the first time.
+Name: "desktopicon"; Description: "Put a shortcut on the desktop"; GroupDescription: "Shortcuts (the Start menu always gets one):"
+
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Comment: "Open, manage and back up your WSL Linux distros"
-Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Comment: "Open, manage and back up your WSL Linux distros"
+Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Comment: "Open, manage and back up your WSL Linux distros"; Tasks: desktopicon
 
 [Registry]
 ; The Settings > Apps entry of the PowerShell install line, replaced by this one.

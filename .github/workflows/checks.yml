@@ -124,6 +124,22 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File installer\build-setup.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $setup = (Resolve-Path build\WSL-Control-Panel-Setup.exe).Path
+
+          # The portable zip holds exactly the app (no uninstaller, so the app knows it is portable),
+          # and the checksums match both files.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path build\WSL-Control-Panel-Portable.zip).Path)
+          $top = @($z.Entries | ForEach-Object { ($_.FullName -replace '\\', '/').Split('/')[0] } | Sort-Object -Unique)
+          $z.Dispose()
+          "Portable zip: $($top -join ', ')"
+          if (($top -join ',') -ne 'bash,powershell,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the portable zip.'; exit 1 }
+          $sums = Get-Content build\WSL-Control-Panel-SHA256SUMS.txt
+          foreach ($f in 'WSL-Control-Panel-Setup.exe', 'WSL-Control-Panel-Portable.zip') {
+            $h = (Get-FileHash (Join-Path build $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($sums -notcontains "$h  $f") { Write-Host "::error::SHA256SUMS.txt has no correct line for $f."; exit 1 }
+          }
+          'Portable zip and checksums OK'
+
           $dir = Join-Path $env:RUNNER_TEMP 'Setup test'
           $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=""$dir""", '/LOG=setup-install.log' -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content setup-install.log -Tail 30; Write-Host "::error::Setup exited with $($p.ExitCode)."; exit 1 }
@@ -144,12 +160,15 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $dir 'data\config\keep.txt'))) { Write-Host '::error::Uninstall deleted the saved logins.'; exit 1 }
           'Setup, app and uninstall OK'
 
-      # The Setup of this commit, to download and try (Actions > this run > Artifacts).
+      # The release files of this commit, to download and try (Actions > this run > Artifacts).
       - name: Keep the Setup
         uses: actions/upload-artifact@v4
         with:
           name: WSL-Control-Panel-Setup
-          path: build/WSL-Control-Panel-Setup.exe
+          path: |
+            build/WSL-Control-Panel-Setup.exe
+            build/WSL-Control-Panel-Portable.zip
+            build/WSL-Control-Panel-SHA256SUMS.txt
           retention-days: 14
 
       # Report only: style findings are worth reading but do not fail the build.

@@ -1,5 +1,5 @@
 # ==============================================================================
-# WSL Control Panel - builds WSL-Control-Panel-Setup.exe (Windows only).
+# WSL Control Panel - builds the release files (Windows only).
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File installer\build-setup.ps1
 #
@@ -7,8 +7,13 @@
 #    launcher\Launcher.cs), powershell\ and bash\.
 # 2. Compiles installer\setup.iss with Inno Setup 6 (installed with Chocolatey
 #    when missing, as on GitHub's Windows machines).
+# 3. Zips the same staged folder as the portable copy: unzip anywhere and run.
+#    It has no unins000.exe, which is how the app knows it is portable.
+# 4. Writes SHA256SUMS.txt for both, which the app's updater checks a
+#    downloaded Setup against (and people can check their download with).
 # The version comes from $PANEL_VERSION in powershell\WSL-Control-Panel.ps1.
-# Output: build\WSL-Control-Panel-Setup.exe. Used by the Checks and Release
+# Output in build\: WSL-Control-Panel-Setup.exe, WSL-Control-Panel-Portable.zip
+# and WSL-Control-Panel-SHA256SUMS.txt. Used by the Checks and Release
 # workflows on GitHub.
 #
 # Keep this file plain ASCII (Windows PowerShell 5.1 reads it as ANSI).
@@ -47,4 +52,15 @@ if (-not $iscc) {
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (exit code $LASTEXITCODE)." }
 $setup = Join-Path $build 'WSL-Control-Panel-Setup.exe'
 if (-not (Test-Path -LiteralPath $setup)) { throw 'The Setup was not created.' }
-"Built $setup ($([math]::Round((Get-Item -LiteralPath $setup).Length / 1KB)) KB)"
+
+# 3. The portable copy: the staged folder as it is.
+$zip = Join-Path $build 'WSL-Control-Panel-Portable.zip'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+
+# 4. Checksums, in the format of sha256sum (lowercase hash, two spaces, name).
+$sums = Join-Path $build 'WSL-Control-Panel-SHA256SUMS.txt'
+$lines = foreach ($f in $setup, $zip) { '{0}  {1}' -f (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path -Leaf $f) }
+[System.IO.File]::WriteAllLines($sums, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))
+
+foreach ($f in $setup, $zip, $sums) { "Built $f ($([math]::Round((Get-Item -LiteralPath $f).Length / 1KB)) KB)" }

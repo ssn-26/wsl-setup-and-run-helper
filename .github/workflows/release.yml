@@ -1,49 +1,103 @@
-# When you publish a release on GitHub, this builds WSL-Control-Panel-Setup.exe
-# and attaches it to that release, so the README's "Download for Windows" link
-# (releases/latest/download/WSL-Control-Panel-Setup.exe) and the app's Update
-# button get it. The release tag must match the app version, e.g. v2.3.0 for
-# PANEL_VERSION = '2.3.0'.
+# Makes a release when you push a version tag:
+#
+#   git tag v2.5.0
+#   git push origin v2.5.0
+#
+# The tag must match the app version (v2.5.0 for PANEL_VERSION = '2.5.0'), and
+# CHANGELOG.md should have a "## 2.5.0" section: it becomes the release notes,
+# followed by the list of pull requests GitHub generates.
+#
+# It builds, with installer\build-setup.ps1, and attaches:
+#   WSL-Control-Panel-Setup.exe        the Setup wizard (README's Download link)
+#   WSL-Control-Panel-Portable.zip     unzip anywhere and run, nothing installed
+#   WSL-Control-Panel-SHA256SUMS.txt   the fingerprints of both; the app's
+#                                      Update button installs a Setup only when
+#                                      it matches
+# The files keep the same names in every release, so
+# releases/latest/download/<name> always links the newest one.
+#
+# A release made by hand on GitHub (Draft a new release, with a new tag) also
+# runs this: the files are then added to that release.
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
 
 jobs:
-  setup:
-    name: Attach the Setup
+  release:
+    name: Build and publish
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Tag matches the app version
+        id: version
         shell: powershell
-        env:
-          TAG: ${{ github.event.release.tag_name }}
         run: |
           $text = Get-Content -LiteralPath powershell\WSL-Control-Panel.ps1 -Raw
           [void]($text -match "PANEL_VERSION\s*=\s*'([^']+)'")
           $version = $Matches[1]
-          if ($env:TAG.TrimStart('v') -ne $version) {
-            Write-Host "::error::The release tag '$env:TAG' does not match the app version $version. Name the release v$version."
+          $tag = '${{ github.ref_name }}'
+          if ($tag.TrimStart('v') -ne $version) {
+            Write-Host "::error::The tag '$tag' does not match the app version $version. Tag the release v$version."
             exit 1
           }
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
           "Releasing $version"
 
-      - name: Build the Setup
+      # The same check CI runs on every push: the window builds and its self-tests pass.
+      - name: The panel builds its window
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File powershell/WSL-Control-Panel.ps1 -Validate
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Build the Setup, the portable zip and the checksums
         shell: powershell
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File installer\build-setup.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      - name: Attach it to the release
+      - name: Publish the release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload $env:TAG build\WSL-Control-Panel-Setup.exe --clobber --repo $env:GITHUB_REPOSITORY
+          $version = '${{ steps.version.outputs.value }}'
+          $tag = '${{ github.ref_name }}'
+          $files = 'build\WSL-Control-Panel-Setup.exe', 'build\WSL-Control-Panel-Portable.zip', 'build\WSL-Control-Panel-SHA256SUMS.txt'
+
+          # "## 2.5.0" up to the next "## " heading of CHANGELOG.md, without the heading.
+          $changes = ''
+          if (Test-Path CHANGELOG.md) {
+            $changelog = Get-Content CHANGELOG.md -Raw -Encoding UTF8
+            if ($changelog -match "(?ms)^## $([regex]::Escape($version))[^\r\n]*\r?\n(.*?)(?=^## |\z)") { $changes = $Matches[1].Trim() }
+          }
+          if (-not $changes) { Write-Host "::warning::CHANGELOG.md has no section for $version." }
+
+          # GitHub's own list of the pull requests merged since the previous release.
+          $generated = ''
+          $json = gh api -X POST "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" -f tag_name=$tag
+          if ($LASTEXITCODE -eq 0) { $generated = ($json | ConvertFrom-Json).body }
+
+          $notes = @()
+          if ($changes) { $notes += $changes }
+          $notes += "**Download:** [WSL-Control-Panel-Setup.exe](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/WSL-Control-Panel-Setup.exe) " +
+                    "(installs it), or [WSL-Control-Panel-Portable.zip](https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/WSL-Control-Panel-Portable.zip) " +
+                    "(unzip and run, nothing installed). Already installed? The app offers **Update now** by itself."
+          if ($generated) { $notes += $generated }
+          $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+          [System.IO.File]::WriteAllText($notesFile, ($notes -join "`n`n"), (New-Object System.Text.UTF8Encoding($false)))
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # Made by hand on GitHub: add the files to it.
+            gh release upload $tag @files --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag @files --title "WSL Control Panel $version" --notes-file $notesFile --verify-tag --repo $env:GITHUB_REPOSITORY
+          }
           if ($LASTEXITCODE -ne 0) { exit 1 }
