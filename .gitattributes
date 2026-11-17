@@ -6,8 +6,8 @@
 
 # Shell scripts are run by bash inside WSL, so they must always be LF.
 *.sh text eol=lf
-# Everything in bash/ goes into Linux (e.g. the xsession file), so LF too.
-bash/** text eol=lf
+# Everything in app/linux/ goes into Linux (e.g. the xsession file), so LF too.
+app/linux/** text eol=lf
 
 # PowerShell script: LF on disk. Keep it plain ASCII - Windows PowerShell 5.1
 # reads a BOM-less file as ANSI, so non-ASCII characters could break parsing.
@@ -24,6 +24,9 @@ bash/** text eol=lf
 .github/ export-ignore
 README.md export-ignore
 LICENSE export-ignore
-installer/ export-ignore
+# build/ stays in the ZIP for Launcher.cs and build-launcher.ps1 (install.ps1
+# builds the exe from them); only the Setup-wizard files are left out.
+build/setup.iss export-ignore
+build/build-setup.ps1 export-ignore
 docs/ export-ignore
 CHANGELOG.md export-ignore

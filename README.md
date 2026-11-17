@@ -231,7 +231,7 @@ Remote Desktop *login* itself is still to be confirmed by hand.
 
 ## Making a release
 
-1. Raise `$PANEL_VERSION` in `powershell\WSL-Control-Panel.ps1` (and the two
+1. Raise `$PANEL_VERSION` in `app\windows\WSL-Control-Panel.ps1` (and the two
    `vX.Y.Z` texts in `ui\MainWindow.xaml`).
 2. Add a `## X.Y.Z` section to `CHANGELOG.md`: what changed, for people using
    the app. It becomes the release notes.
@@ -254,22 +254,35 @@ when installing (there is no default; updates keep that folder):
 ```
 WSL Control Panel.exe     <- the app
 unins000.exe / .dat       the uninstaller (with the PowerShell install: install.ps1 instead)
-bash\                     the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh,
+app\
+  windows\                the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
+                          it does), AppIcon.ps1 (the icon), ui\MainWindow.xaml (layout and colours)
+  linux\                  the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh,
                           flatpak.sh for the App store)
                           + xsession, the desktop session file both installers write
-powershell\               the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
-                          it does), AppIcon.ps1 (the icon), ui\MainWindow.xaml (layout and colours)
 data\                     the panel's own files (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)
   logs\                   the full output of each desktop install
 ```
 
-The repository also has `launcher\` (the exe's source and `build.ps1`),
-`installer\` (the Setup wizard, `setup.iss`, built by GitHub for every release
-with Inno Setup), `install.ps1` (the PowerShell install), and `Install.bat` /
-`WSL-Control-Panel.bat` (for an unzipped copy). This README, the licence, the
-installer and the git/CI files stay on GitHub: they are left out of "Download
-ZIP" too (`export-ignore` in `.gitattributes`).
+The repository itself:
+
+```
+app\                      the app (above)
+build\                    tools that build it:
+  Launcher.cs               the source of "WSL Control Panel.exe"
+  build-launcher.ps1        compiles it (run by install.ps1 on your PC)
+  setup.iss                 the Setup wizard (Inno Setup)
+  build-setup.ps1           builds the Setup, portable zip and checksums into release\
+Install.bat               double-click to install from a downloaded copy of the code
+install.ps1               installs, updates and uninstalls (Install.bat starts it)
+CHANGELOG.md              what changed in each version (the release notes)
+```
+
+The app is always installed to be used; there is no separate "run without
+installing" file. (For no install at all, use the portable zip.) This README,
+the licence, the Setup-wizard files and the git/CI files stay on GitHub: they
+are left out of "Download ZIP" too (`export-ignore` in `.gitattributes`).
 
 **Your Linux disks and backups are never stored in the panel's folder.**
 Download, Back up and Restore always ask where to save (the folder picker
@@ -300,8 +313,7 @@ settings.
 | Desktop closes a few seconds after opening | WSL idle shutdown | Open it through the panel. Its keep-alive holds WSL up while XFCE runs |
 | *"Failed to attach disk ... ext4.vhdx ... ERROR_SHARING_VIOLATION"* | Another program has the distro's disk file open: a stuck WSL, a copy or backup of `data\linux` still running, the `.vhdx` double-clicked (Windows mounted it), or antivirus | The panel catches this before opening and offers **Shut down WSL and try again**, or **Detach the disk and try again**. Still stuck? Restart Windows |
 | *"Do you want to run this file?"* every time | Windows marks files from a downloaded ZIP | [Install it](#install) with the one line instead. Or click **Run** once (the panel then unblocks its own files), or unblock the ZIP before extracting |
-| A console window stays open behind the panel | Started with `WSL-Control-Panel.bat`: on Windows 11 the console opens in Windows Terminal, which ignores "hidden" | [Install it](#install) and use **WSL Control Panel** from the Start menu (no console at all) |
-| The installer says *"Building WSL Control Panel.exe failed"* | Rare: antivirus blocked the C# compiler, or .NET Framework 4 is damaged | Allow it in your antivirus and run the line again, or use `WSL-Control-Panel.bat` from the install folder |
+| The installer says *"Building WSL Control Panel.exe failed"* | Rare: antivirus blocked the C# compiler, or .NET Framework 4 is damaged | Allow it in your antivirus and run the line again, or use the [Setup or the portable zip](#install), which come with the exe ready-made |
 | WSL itself won't start | Outdated or broken WSL | **Update WSL**, then restart Windows |
 
 ---
@@ -329,13 +341,14 @@ settings.
 
 ## How it works (for the curious)
 
-- **The parts.** `WSL-Control-Panel.bat` only starts PowerShell, with no console
-  window. `powershell\Engine.ps1` does all the work and never asks anything:
-  each step returns a result, and the window (`powershell\WSL-Control-Panel.ps1`
-  + `ui\MainWindow.xaml`, a WPF window) decides what to ask next. Long jobs run
-  in a background PowerShell runspace that loads the same engine and streams its
-  output back, so the window never freezes. The Linux-side scripts are ordinary
-  readable files in `bash\` (`install-desktop.sh`, `create-user.sh`,
+- **The parts.** `WSL Control Panel.exe` (from `build\Launcher.cs`) only runs
+  PowerShell inside itself, with no console window. `app\windows\Engine.ps1`
+  does all the work and never asks anything: each step returns a result, and the
+  window (`app\windows\WSL-Control-Panel.ps1` + `ui\MainWindow.xaml`, a WPF
+  window) decides what to ask next. Long jobs run in a background PowerShell
+  runspace that loads the same engine and streams its output back, so the
+  window never freezes. The Linux-side scripts are ordinary readable files in
+  `app\linux\` (`install-desktop.sh`, `create-user.sh`,
   `keepalive.sh`); the panel sends them into the distro as **base64** so no
   layer of Windows/bash quoting can mangle them.
 - **Safe quoting.** The panel never builds one long command string. It passes each
@@ -364,13 +377,13 @@ settings.
   Windows desktop through WSLg. They also point sound at WSLg's PulseAudio server.
 - **Polkit rule:** the installer adds a rule that stops the repeating
   "Authentication is required to create a color managed device" pop-ups.
-- Keep the `.ps1` files plain ASCII and the `.bat` with CRLF line endings.
+- Keep the `.ps1` files plain ASCII and `Install.bat` with CRLF line endings.
   Check the scripts parse with Windows PowerShell 5.1 (`powershell.exe`, which
   is what the launcher uses), not PowerShell 7, which accepts syntax 5.1 rejects.
 - **Checks on GitHub.** Every push runs `.github/workflows/checks.yml`: it
   parses every `.ps1` with Windows PowerShell 5.1, checks they are plain ASCII
-  and that the `.bat` is CRLF, **builds the window** (`-Validate`) on a Windows
-  machine, runs `shellcheck` on `bash\`, and lists PSScriptAnalyzer's findings
+  and that `Install.bat` is CRLF, **builds the window** (`-Validate`) on a Windows
+  machine, runs `shellcheck` on `app\linux\`, and lists PSScriptAnalyzer's findings
   (report only).
 - **Version.** The window shows its version (`$PANEL_VERSION` at the top of
   `WSL-Control-Panel.ps1`). Raise it when you share a change, so a bug report

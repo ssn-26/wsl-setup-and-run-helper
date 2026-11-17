@@ -17,13 +17,13 @@ jobs:
       # between shellcheck versions) are only shown.
       - name: shellcheck
         run: |
-          shellcheck bash/*.sh || true
-          shellcheck --severity=warning bash/*.sh
-          shellcheck --severity=warning -s sh bash/xsession
+          shellcheck app/linux/*.sh || true
+          shellcheck --severity=warning app/linux/*.sh
+          shellcheck --severity=warning -s sh app/linux/xsession
 
-      - name: LF line endings in bash/
+      - name: LF line endings in app/linux/
         run: |
-          if grep -rlI $'\r' bash/; then
+          if grep -rlI $'\r' app/linux/; then
             echo "::error::The files above have Windows (CRLF) line endings; bash inside WSL needs LF."
             exit 1
           fi
@@ -40,7 +40,7 @@ jobs:
         shell: powershell
         run: |
           $bad = 0
-          foreach ($f in @(Get-ChildItem powershell, launcher, installer -Recurse -Filter *.ps1) + @(Get-Item install.ps1)) {
+          foreach ($f in @(Get-ChildItem app, build -Recurse -Filter *.ps1) + @(Get-Item install.ps1)) {
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
             $rel = Resolve-Path -Relative $f.FullName
@@ -55,7 +55,7 @@ jobs:
         shell: powershell
         run: |
           $bad = 0
-          foreach ($f in @(Get-ChildItem powershell, launcher, installer -Recurse -Include *.ps1, *.cs, *.xaml, *.iss) + @(Get-Item install.ps1)) {
+          foreach ($f in @(Get-ChildItem app, build -Recurse -Include *.ps1, *.cs, *.xaml, *.iss) + @(Get-Item install.ps1)) {
             $lines = [IO.File]::ReadAllLines($f.FullName)
             $rel = Resolve-Path -Relative $f.FullName
             for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -66,10 +66,10 @@ jobs:
           'Plain ASCII'
 
       # cmd.exe can fail to find labels in a .bat with Unix (LF) line endings.
-      - name: Launcher keeps CRLF line endings
+      - name: Install.bat keeps CRLF line endings
         shell: powershell
         run: |
-          foreach ($bat in 'WSL-Control-Panel.bat', 'Install.bat') {
+          foreach ($bat in 'Install.bat') {
             $text = [IO.File]::ReadAllText((Resolve-Path $bat).Path)
             if ($text -match "(^|[^`r])`n") {
               Write-Host "::error file=$bat::Has LF-only line endings; it must be CRLF."
@@ -83,7 +83,7 @@ jobs:
       - name: Window builds
         shell: powershell
         run: |
-          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File powershell/WSL-Control-Panel.ps1 -Validate
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File app/windows/WSL-Control-Panel.ps1 -Validate
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # The installer from this checkout: builds "WSL Control Panel.exe" with the
@@ -101,7 +101,7 @@ jobs:
           # Only what the app needs is installed.
           $installed = @(Get-ChildItem -LiteralPath $dir -Name | Where-Object { $_ -ne 'data' } | Sort-Object)
           "Installed: $($installed -join ', ')"
-          if (($installed -join ',') -ne 'bash,install.ps1,powershell,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the install folder.'; exit 1 }
+          if (($installed -join ',') -ne 'app,install.ps1,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the install folder.'; exit 1 }
 
           New-Item -ItemType Directory -Force -Path (Join-Path $dir 'data\config') | Out-Null
           Set-Content -LiteralPath (Join-Path $dir 'data\config\keep.txt') -Value 'x'
@@ -121,21 +121,21 @@ jobs:
       - name: Setup wizard
         shell: powershell
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File installer\build-setup.ps1
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File build\build-setup.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          $setup = (Resolve-Path build\WSL-Control-Panel-Setup.exe).Path
+          $setup = (Resolve-Path release\WSL-Control-Panel-Setup.exe).Path
 
           # The portable zip holds exactly the app (no uninstaller, so the app knows it is portable),
           # and the checksums match both files.
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path build\WSL-Control-Panel-Portable.zip).Path)
+          $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path release\WSL-Control-Panel-Portable.zip).Path)
           $top = @($z.Entries | ForEach-Object { ($_.FullName -replace '\\', '/').Split('/')[0] } | Sort-Object -Unique)
           $z.Dispose()
           "Portable zip: $($top -join ', ')"
-          if (($top -join ',') -ne 'bash,powershell,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the portable zip.'; exit 1 }
-          $sums = Get-Content build\WSL-Control-Panel-SHA256SUMS.txt
+          if (($top -join ',') -ne 'app,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the portable zip.'; exit 1 }
+          $sums = Get-Content release\WSL-Control-Panel-SHA256SUMS.txt
           foreach ($f in 'WSL-Control-Panel-Setup.exe', 'WSL-Control-Panel-Portable.zip') {
-            $h = (Get-FileHash (Join-Path build $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            $h = (Get-FileHash (Join-Path release $f) -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($sums -notcontains "$h  $f") { Write-Host "::error::SHA256SUMS.txt has no correct line for $f."; exit 1 }
           }
           'Portable zip and checksums OK'
@@ -145,7 +145,7 @@ jobs:
           if ($p.ExitCode -ne 0) { Get-Content setup-install.log -Tail 30; Write-Host "::error::Setup exited with $($p.ExitCode)."; exit 1 }
           $installed = @(Get-ChildItem -LiteralPath $dir -Name | Sort-Object)
           "Installed: $($installed -join ', ')"
-          if (($installed -join ',') -ne 'bash,powershell,unins000.dat,unins000.exe,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the install folder.'; exit 1 }
+          if (($installed -join ',') -ne 'app,unins000.dat,unins000.exe,WSL Control Panel.exe') { Write-Host '::error::Unexpected files in the install folder.'; exit 1 }
 
           $app = Start-Process -FilePath (Join-Path $dir 'WSL Control Panel.exe') -ArgumentList '--validate' -Wait -PassThru `
                    -RedirectStandardOutput setup-app-out.txt -RedirectStandardError setup-app-err.txt
@@ -166,9 +166,9 @@ jobs:
         with:
           name: WSL-Control-Panel-Setup
           path: |
-            build/WSL-Control-Panel-Setup.exe
-            build/WSL-Control-Panel-Portable.zip
-            build/WSL-Control-Panel-SHA256SUMS.txt
+            release/WSL-Control-Panel-Setup.exe
+            release/WSL-Control-Panel-Portable.zip
+            release/WSL-Control-Panel-SHA256SUMS.txt
           retention-days: 14
 
       # Report only: style findings are worth reading but do not fail the build.
@@ -179,5 +179,5 @@ jobs:
           if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
             Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
           }
-          Invoke-ScriptAnalyzer -Path powershell -Recurse -Severity Error, Warning |
+          Invoke-ScriptAnalyzer -Path app\windows -Recurse -Severity Error, Warning |
             Format-Table Line, Severity, RuleName, Message -AutoSize -Wrap | Out-String -Width 220

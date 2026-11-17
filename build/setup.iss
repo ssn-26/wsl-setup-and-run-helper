@@ -1,7 +1,7 @@
 ; =============================================================================
 ; WSL Control Panel - the Setup wizard (Inno Setup 6).
 ;
-; Built by installer\build-setup.ps1 (on GitHub for every release), which
+; Built by build\build-setup.ps1 (on GitHub for every release), which
 ; passes AppVersion, Stage (the folder with the app's files) and Icon.
 ; Screens: Welcome -> where to install -> shortcuts -> Finish. On a first install the
 ; folder box starts empty: the user must choose (Browse or type) where the app
@@ -16,13 +16,13 @@
   #define AppVersion "0.0.0"
 #endif
 #ifndef Stage
-  #define Stage "..\build\stage"
+  #define Stage "..\release\stage"
 #endif
 #ifndef Icon
-  #define Icon "..\build\app.ico"
+  #define Icon "..\release\app.ico"
 #endif
 #ifndef OutDir
-  #define OutDir "..\build"
+  #define OutDir "..\release"
 #endif
 
 #define AppName "WSL Control Panel"
@@ -68,7 +68,9 @@ FinishedLabel=WSL Control Panel is installed. You can open it any time from the 
 
 [InstallDelete]
 ; Files of older versions (and of the PowerShell install line) that are no
-; longer used. Your data folder (saved logins and settings) is never touched.
+; longer used, and the app's own folder (replaced by the new version's).
+; Your data folder (saved logins and settings) is never touched.
+Type: filesandordirs; Name: "{app}\app"
 Type: filesandordirs; Name: "{app}\powershell"
 Type: filesandordirs; Name: "{app}\bash"
 Type: filesandordirs; Name: "{app}\launcher"

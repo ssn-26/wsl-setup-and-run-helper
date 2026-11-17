@@ -33,7 +33,7 @@ param(
 function Write-Step([string]$text) { Write-Host "  $text" }
 
 function Get-PanelVersion([string]$dir) {
-    $text = Get-Content -LiteralPath (Join-Path $dir 'powershell\WSL-Control-Panel.ps1') -Raw
+    $text = Get-Content -LiteralPath (Join-Path $dir 'app\windows\WSL-Control-Panel.ps1') -Raw
     if ($text -match "PANEL_VERSION\s*=\s*'([^']+)'") { return $Matches[1] }
     return '0.0.0'
 }
@@ -45,7 +45,7 @@ function Assert-PanelClosed {
 }
 
 $UNINSTALL_KEY = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WSLControlPanel'
-# The Settings > Apps entry of the Setup wizard (installer\setup.iss AppId).
+# The Settings > Apps entry of the Setup wizard (build\setup.iss AppId).
 $SETUP_KEY = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{11AE9744-F39D-4894-85B0-0C6FC37A1F67}_is1'
 $SHORTCUT_NAME = 'WSL Control Panel.lnk'
 $EXE_NAME = 'WSL Control Panel.exe'
@@ -55,7 +55,7 @@ function Get-ShortcutPaths {
              (Join-Path ([Environment]::GetFolderPath('Desktop')) $SHORTCUT_NAME))
 }
 
-# Copies what the app needs from $src to $dest - powershell\, bash\ and this
+# Copies what the app needs from $src to $dest - app\ and this
 # installer (kept for updates and -Uninstall) - and removes files older
 # versions put there. The data folder in $dest is never touched. The saved logins and settings of an older unzipped copy
 # (data\config in $src) are brought along when $dest has none yet - never its
@@ -63,14 +63,13 @@ function Get-ShortcutPaths {
 function Copy-PanelFiles([string]$src, [string]$dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     if ((Resolve-Path -LiteralPath $src).Path.TrimEnd('\') -eq (Resolve-Path -LiteralPath $dest).Path.TrimEnd('\')) { return }
-    foreach ($d in 'powershell', 'bash') {
-        $target = Join-Path $dest $d
-        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-        Copy-Item -LiteralPath (Join-Path $src $d) -Destination $target -Recurse -Force
-    }
+    $target = Join-Path $dest 'app'
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    Copy-Item -LiteralPath (Join-Path $src 'app') -Destination $target -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $src 'install.ps1') -Destination (Join-Path $dest 'install.ps1') -Force
-    # (unins000.* belong to the Setup wizard; this install replaces it.)
-    foreach ($old in 'launcher', 'WSL-Control-Panel.bat', 'Install.bat', 'README.md', 'LICENSE', 'unins000.exe', 'unins000.dat') {
+    # (powershell\ and bash\ held the app before 2.5.0; unins000.* belong to
+    # the Setup wizard, which this install replaces.)
+    foreach ($old in 'powershell', 'bash', 'launcher', 'WSL-Control-Panel.bat', 'Install.bat', 'README.md', 'LICENSE', 'unins000.exe', 'unins000.dat') {
         Remove-Item -LiteralPath (Join-Path $dest $old) -Recurse -Force -ErrorAction SilentlyContinue
     }
     $oldConfig = Join-Path $src 'data\config'
@@ -83,11 +82,11 @@ function Copy-PanelFiles([string]$src, [string]$dest) {
 }
 
 # Builds "WSL Control Panel.exe" into $dest from the source in $src
-# (launcher\build.ps1; the source itself is not installed). Always in Windows
+# (build\build-launcher.ps1; the source itself is not installed). Always in Windows
 # PowerShell 5.1, even when this runs in PowerShell 7: the launcher hosts the
 # PowerShell that comes with Windows.
 function Build-Launcher([string]$src, [string]$dest) {
-    $build = Join-Path $src 'launcher\build.ps1'
+    $build = Join-Path $src 'build\build-launcher.ps1'
     if (-not (Test-Path -LiteralPath $build)) { throw 'The launcher source is missing - install with the one-line command instead.' }
     $ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $out = & $ps51 -NoProfile -ExecutionPolicy Bypass -STA -File $build -Source $src -Dest $dest
@@ -174,11 +173,11 @@ function Install-Panel {
     $tmp = $null
     try {
         Assert-PanelClosed
-        if (-not $src -and $PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'powershell\WSL-Control-Panel.ps1'))) {
+        if (-not $src -and $PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'app\windows\WSL-Control-Panel.ps1'))) {
             $src = $PSScriptRoot   # run from an unzipped copy
         }
         if ($src) {
-            if (-not (Test-Path -LiteralPath (Join-Path $src 'powershell\WSL-Control-Panel.ps1'))) { throw "No WSL Control Panel files in $src" }
+            if (-not (Test-Path -LiteralPath (Join-Path $src 'app\windows\WSL-Control-Panel.ps1'))) { throw "No WSL Control Panel files in $src" }
             Write-Step "Installing from $src ..."
         } else {
             # Downloaded by PowerShell itself: no "from the internet" mark, so no warnings later.

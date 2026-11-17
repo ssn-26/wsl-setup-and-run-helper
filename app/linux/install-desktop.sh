@@ -5,7 +5,7 @@
 # Desktops: xfce (default), kde (KDE Plasma), cinnamon, mate, lxqt.
 # Configures xrdp to listen on specified port (default: 3390).
 # Records the chosen desktop in /etc/wsl-panel-session, which the session file
-# (bash/xsession) reads, so Remote Desktop starts that desktop.
+# (app/linux/xsession) reads, so Remote Desktop starts that desktop.
 # Configures Polkit to suppress annoying authentication prompts (colord/packagekit).
 # Configures WSLg PulseAudio forwarding for sound support.
 #
@@ -217,7 +217,7 @@ polkit.addRule(function(action, subject) {
 JS_POLKIT_EOF
 
 # 4. Configure the desktop session files (.xsession & .xinitrc)
-# The panel puts a write_session function (printing bash/xsession) in front of
+# The panel puts a write_session function (printing app/linux/xsession) in front of
 # this script. Run by hand, read that file from next to this script instead.
 if ! declare -F write_session >/dev/null; then
     write_session() { cat "$(dirname "$0")/xsession"; }

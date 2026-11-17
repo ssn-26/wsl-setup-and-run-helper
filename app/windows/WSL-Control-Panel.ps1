@@ -5,8 +5,8 @@
 # desktops (xrdp + Remote Desktop, or Win-KeX on Kali), backup / restore, disk
 # compaction, .wslconfig limits.
 #
-# Start it with "WSL Control Panel.exe" (built by install.ps1) or the
-# WSL-Control-Panel.bat launcher. All the work is done by
+# Start it with "WSL Control Panel.exe" (built when installing; see
+# install.ps1 and build\Launcher.cs). All the work is done by
 # Engine.ps1 (dot-sourced below); this file is only the window. Long jobs run
 # in a background runspace that loads the same engine, so the window never
 # freezes. -Validate builds the window without showing it (used by CI).
@@ -1762,7 +1762,7 @@ function Show-UpdateCard($r) {
 $ui.BtnUpdateNotes.Add_Click({ if ($script:Update.Page) { Start-Process $script:Update.Page } })
 # How this copy was installed: 'Setup' (the Setup wizard), 'Script' (the
 # PowerShell install line), 'Portable' (an unzipped portable copy) or
-# 'Source' (an unzipped copy of the code, started with the .bat).
+# 'Source' (the code itself, run directly without installing).
 function Get-InstallKind {
     if (-not (Test-Path -LiteralPath (Join-Path $ROOT_DIR 'WSL Control Panel.exe'))) { return 'Source' }
     if (Test-Path -LiteralPath (Join-Path $ROOT_DIR 'unins000.exe')) { return 'Setup' }

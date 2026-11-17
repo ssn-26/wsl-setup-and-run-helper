@@ -11,17 +11,18 @@
 # WSL_UTF8=1 makes wsl.exe print UTF-8 instead of UTF-16 (children inherit it).
 $env:WSL_UTF8 = '1'
 
-# Folder layout (this file lives in <root>\powershell):
-#   <root>\WSL Control Panel.exe   the app (built by install.ps1), or WSL-Control-Panel.bat
-#   <root>\bash\                   the Linux-side scripts
-#   <root>\powershell\             this engine + the window (WSL-Control-Panel.ps1, ui\)
+# Folder layout (this file lives in <root>\app\windows):
+#   <root>\WSL Control Panel.exe   the app (built when installing)
+#   <root>\app\linux\              the Linux-side scripts
+#   <root>\app\windows\            this engine + the window (WSL-Control-Panel.ps1, ui\)
 #   <root>\data\config\            config.json + saved accounts (encrypted passwords)
 #   <root>\data\logs\              output of desktop installs
 # Distro disks and backups go wherever you choose each time (never in <root>).
 $SCRIPT_DIR = $PSScriptRoot
-$ROOT_DIR = Split-Path -Parent $SCRIPT_DIR
+$APP_DIR = Split-Path -Parent $SCRIPT_DIR
+$ROOT_DIR = Split-Path -Parent $APP_DIR
 
-$SCRIPTS_FOLDER  = Join-Path $ROOT_DIR 'bash'
+$SCRIPTS_FOLDER  = Join-Path $APP_DIR 'linux'
 $DATA_FOLDER     = Join-Path $ROOT_DIR 'data'
 $CONFIG_FOLDER   = Join-Path $DATA_FOLDER 'config'
 $ACCOUNTS_FOLDER = Join-Path $CONFIG_FOLDER 'accounts'
@@ -86,13 +87,13 @@ function Invoke-ElevatedScript([string]$code) {
 function Get-ScriptText([string]$name) {
     $path = Join-Path $SCRIPTS_FOLDER $name
     if (-not (Test-Path -LiteralPath $path)) {
-        throw "Missing helper file: $path`n  Keep the 'bash' folder next to the 'powershell' folder."
+        throw "Missing helper file: $path`n  Keep the 'linux' folder next to the 'windows' folder (both in 'app')."
     }
     return ((Get-Content -LiteralPath $path -Raw) -replace "`r`n", "`n")
 }
 
 # A script that writes desktop session files, with a write_session function
-# in front of it that prints bash/xsession (the one copy of that file).
+# in front of it that prints app/linux/xsession (the one copy of that file).
 function Get-ScriptWithSession([string]$name) {
     $session = (Get-ScriptText 'xsession').TrimEnd("`n")
     return "write_session() {`ncat <<'XSESSION_EOF'`n$session`nXSESSION_EOF`n}`n" + (Get-ScriptText $name)
@@ -543,7 +544,7 @@ function Invoke-WslStreamed([string[]]$ArgumentList, [string]$StdinFile = $null)
 # run this?" warning for files from a downloaded ZIP shows only the first time.
 # data\ is skipped: it holds the large Linux disks and nothing that runs.
 function Unblock-PanelFiles {
-    foreach ($p in @((Join-Path $ROOT_DIR 'WSL-Control-Panel.bat'), $SCRIPT_DIR, $SCRIPTS_FOLDER)) {
+    foreach ($p in @($SCRIPT_DIR, $SCRIPTS_FOLDER)) {
         try {
             if (Test-Path -LiteralPath $p -PathType Leaf) { Unblock-File -LiteralPath $p -ErrorAction SilentlyContinue }
             elseif (Test-Path -LiteralPath $p) { Get-ChildItem -LiteralPath $p -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue }
@@ -1181,7 +1182,7 @@ function Copy-WslDistro([string]$source, [string]$name, [string]$loc) {
 # ------------------------------------------------------------------------------
 # App store: Flatpak apps from Flathub (https://flathub.org), the one catalogue
 # that works the same on every distro. The window reads the catalogue in the
-# background; installing runs bash/flatpak.sh inside the distro as root.
+# background; installing runs app/linux/flatpak.sh inside the distro as root.
 # ------------------------------------------------------------------------------
 $FLATHUB_API = 'https://flathub.org/api/v2'
 # The main categories Flathub knows (its /collection/category/<name>).

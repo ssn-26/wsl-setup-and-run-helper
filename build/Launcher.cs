@@ -1,7 +1,7 @@
 // =============================================================================
 // WSL Control Panel - the launcher, "WSL Control Panel.exe".
 //
-// A small Windows program that runs powershell\WSL-Control-Panel.ps1 inside
+// A small Windows program that runs app\windows\WSL-Control-Panel.ps1 inside
 // itself (PowerShell is part of Windows, so nothing is installed). There is
 // no console window, and Task Manager and the taskbar show "WSL Control
 // Panel" with its own icon instead of "Windows PowerShell".
@@ -34,10 +34,10 @@ static class Launcher
     {
         bool validate = args.Length > 0 && args[0] == "--validate";
         string dir = AppDomain.CurrentDomain.BaseDirectory;
-        string script = Path.Combine(Path.Combine(dir, "powershell"), "WSL-Control-Panel.ps1");
+        string script = Path.Combine(Path.Combine(Path.Combine(dir, "app"), "windows"), "WSL-Control-Panel.ps1");
         if (!File.Exists(script))
         {
-            return Fail(validate, "powershell\\WSL-Control-Panel.ps1 was not found next to this program:\n" + dir +
+            return Fail(validate, "app\\windows\\WSL-Control-Panel.ps1 was not found next to this program:\n" + dir +
                 "\n\nInstall the panel again to repair it.");
         }
 

@@ -7,7 +7,7 @@
 # CHANGELOG.md should have a "## 2.5.0" section: it becomes the release notes,
 # followed by the list of pull requests GitHub generates.
 #
-# It builds, with installer\build-setup.ps1, and attaches:
+# It builds, with build\build-setup.ps1, and attaches:
 #   WSL-Control-Panel-Setup.exe        the Setup wizard (README's Download link)
 #   WSL-Control-Panel-Portable.zip     unzip anywhere and run, nothing installed
 #   WSL-Control-Panel-SHA256SUMS.txt   the fingerprints of both; the app's
@@ -38,7 +38,7 @@ jobs:
         id: version
         shell: powershell
         run: |
-          $text = Get-Content -LiteralPath powershell\WSL-Control-Panel.ps1 -Raw
+          $text = Get-Content -LiteralPath app\windows\WSL-Control-Panel.ps1 -Raw
           [void]($text -match "PANEL_VERSION\s*=\s*'([^']+)'")
           $version = $Matches[1]
           $tag = '${{ github.ref_name }}'
@@ -53,13 +53,13 @@ jobs:
       - name: The panel builds its window
         shell: powershell
         run: |
-          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File powershell/WSL-Control-Panel.ps1 -Validate
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File app/windows/WSL-Control-Panel.ps1 -Validate
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Build the Setup, the portable zip and the checksums
         shell: powershell
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File installer\build-setup.ps1
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File build\build-setup.ps1
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Publish the release
@@ -69,7 +69,7 @@ jobs:
         run: |
           $version = '${{ steps.version.outputs.value }}'
           $tag = '${{ github.ref_name }}'
-          $files = 'build\WSL-Control-Panel-Setup.exe', 'build\WSL-Control-Panel-Portable.zip', 'build\WSL-Control-Panel-SHA256SUMS.txt'
+          $files = 'release\WSL-Control-Panel-Setup.exe', 'release\WSL-Control-Panel-Portable.zip', 'release\WSL-Control-Panel-SHA256SUMS.txt'
 
           # "## 2.5.0" up to the next "## " heading of CHANGELOG.md, without the heading.
           $changes = ''

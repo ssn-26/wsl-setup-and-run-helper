@@ -23,6 +23,10 @@ tagging. Headings are `## <version>`, exactly as in `PANEL_VERSION`.
   (`WSL-Control-Panel-SHA256SUMS.txt`), and **Update now** installs a download
   only if it matches.
 - The desktop shortcut is now a choice in the Setup (on by default).
+- Tidier folders: the app's files are now in one `app` folder (`app\windows`
+  and `app\linux`). Updating moves an existing install over by itself; your
+  logins and settings stay. `WSL-Control-Panel.bat` is gone: install the app,
+  or use the portable zip.
 - Messages that pop up while a tool is open now show on top of it instead of
   behind it.
 

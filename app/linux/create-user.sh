@@ -86,7 +86,7 @@ echo "  - Setting up the desktop session and audio forwarding..."
 USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
 USER_HOME="${USER_HOME:-/home/$USERNAME}"
 
-# The panel puts a write_session function (printing bash/xsession) in front of
+# The panel puts a write_session function (printing app/linux/xsession) in front of
 # this script. Run by hand, read that file from next to this script instead.
 if ! declare -F write_session >/dev/null; then
     write_session() { cat "$(dirname "$0")/xsession"; }
