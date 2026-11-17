@@ -718,6 +718,16 @@
                 </StackPanel>
               </DockPanel>
             </Border>
+            <Border Style="{StaticResource CardBox}">
+              <DockPanel>
+                <TextBlock Style="{StaticResource CardIcon}" Text="&#xE8FC;"/>
+                <Button x:Name="BtnStartMenu" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Hide them" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                  <TextBlock Text="Windows Start menu"/>
+                  <TextBlock x:Name="StartMenuText" Style="{StaticResource MutedText}" TextWrapping="Wrap" Text=" "/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
 
             <!-- Accounts -->
             <TextBlock Text="Accounts" Style="{StaticResource H2}"/>

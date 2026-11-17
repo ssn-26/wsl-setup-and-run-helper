@@ -47,16 +47,26 @@ try_lists() {
 }
 
 # 1. Package manager installers
+# Without "Recommends" a desktop is 3-4 times smaller (LXQt on Debian 13:
+# 458 MB instead of 1.7 GB): no printer tools, screensavers, boot splash or
+# power manager (which only crashes in WSL). What a desktop does need from its
+# Recommends is named here: xorgxrdp (Remote Desktop's X server), the window
+# manager of KDE (kwin-x11) and LXQt (openbox), a terminal, an editor, icons.
 install_apt() {
     export DEBIAN_FRONTEND=noninteractive
+    APT="apt-get install -y --no-install-recommends"
     apt-get update
-    apt-get install -y xrdp dbus-x11
+    $APT xrdp xorgxrdp dbus-x11 xauth x11-xserver-utils tzdata
     case "$DESKTOP" in
-        xfce)     try_lists "apt-get install -y" "xfce4 xfce4-goodies" ;;
-        kde)      try_lists "apt-get install -y" "kde-plasma-desktop" "plasma-desktop" ;;
-        cinnamon) try_lists "apt-get install -y" "cinnamon-core" "cinnamon" ;;
-        mate)     try_lists "apt-get install -y" "mate-desktop-environment-core" "mate-desktop-environment" ;;
-        lxqt)     try_lists "apt-get install -y" "lxqt-core" "lxqt" ;;
+        xfce)     try_lists "$APT" "xfce4 xfce4-terminal mousepad xfce4-notifyd tango-icon-theme xfce4-whiskermenu-plugin xfce4-taskmanager xfce4-screenshooter" \
+                                   "xfce4 xfce4-terminal mousepad" ;;
+        kde)      try_lists "$APT" "kde-plasma-desktop kwin-x11 konsole kwrite" "plasma-desktop kwin-x11 konsole" ;;
+        cinnamon) try_lists "$APT" "cinnamon-core gnome-themes-extra" "cinnamon-core" "cinnamon" ;;
+        mate)     try_lists "$APT" "mate-desktop-environment-core" "mate-desktop-environment" ;;
+        # LXQt brings no window manager of its own (openbox is only "recommended"),
+        # and its icons (Papirus) and wallpaper need Qt's SVG support.
+        lxqt)     try_lists "$APT" "lxqt-core openbox featherpad lxqt-sudo lxqt-config lxqt-notificationd lxqt-branding-debian papirus-icon-theme qt6-svg-plugins" \
+                                   "lxqt-core openbox featherpad lxqt-sudo papirus-icon-theme libqt5svg5" "lxqt-core openbox" ;;
     esac
 }
 
@@ -178,6 +188,20 @@ fi
 echo "$SESSION" > /etc/wsl-panel-session
 chmod 644 /etc/wsl-panel-session
 
+# LXQt asks at the first login which window manager to use when the distro has
+# more than one (e.g. another desktop's): choose openbox for everyone.
+if [ "$DESKTOP" = lxqt ] && command -v openbox >/dev/null 2>&1; then
+    LXQT_SESSION=/etc/xdg/lxqt/session.conf
+    mkdir -p /etc/xdg/lxqt
+    if [ -f "$LXQT_SESSION" ] && grep -q '^window_manager=' "$LXQT_SESSION"; then
+        sed -i 's/^window_manager=.*/window_manager=openbox/' "$LXQT_SESSION"
+    elif [ -f "$LXQT_SESSION" ] && grep -q '^\[General\]' "$LXQT_SESSION"; then
+        sed -i '/^\[General\]/a window_manager=openbox' "$LXQT_SESSION"
+    else
+        printf '[General]\nwindow_manager=openbox\n' >> "$LXQT_SESSION"
+    fi
+fi
+
 # A login screen (display manager) has no screen to show in WSL and only fails
 # at every start; Remote Desktop logs in through xrdp instead.
 for dm in sddm lightdm gdm gdm3 lxdm slim; do
@@ -191,6 +215,12 @@ if [ -f /etc/xrdp/xrdp.ini ]; then
     # "port=-1", which must stay exactly as it is.
     sed -i -E "/^\[Globals\]/,/^\[/ s/^port=[0-9]+[[:space:]]*$/port=$PORT/" /etc/xrdp/xrdp.ini
     grep -Eq "^port=${PORT}[[:space:]]*$" /etc/xrdp/xrdp.ini || sed -i "0,/^\[Globals\]/s//[Globals]\nport=$PORT/" /etc/xrdp/xrdp.ini
+fi
+# All WSL2 distros share one network and with it the X display numbers, so
+# each port gets its own range (the panel sets it again when the port changes).
+if [ -f /etc/xrdp/sesman.ini ]; then
+    OFFSET=$((10 + (PORT % 25) * 2))
+    sed -i -E "s/^X11DisplayOffset=[0-9]+[[:space:]]*$/X11DisplayOffset=$OFFSET/" /etc/xrdp/sesman.ini
 fi
 
 # 3. Suppress Polkit authentication dialogs (colord & packagekit loop)

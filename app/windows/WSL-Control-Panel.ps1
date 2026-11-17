@@ -363,12 +363,65 @@ function Open-InExplorer([string]$path) {
 $NO_FOLDER = 'No folder chosen yet'
 
 # Windows' folder / file pickers. $null when cancelled.
+# The standard Windows "Select folder" window (the one File Explorer users
+# know: address bar, search, big targets), opening in $start - usually the
+# folder chosen last time. The old tree picker is the fallback.
+$FOLDER_PICKER_CS = @'
+using System;
+using System.Runtime.InteropServices;
+public static class PanelFolderPicker {
+    [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialogRCW { }
+    [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IFileDialog {
+        [PreserveSig] int Show(IntPtr parent);
+        void SetFileTypes(uint c, IntPtr t); void SetFileTypeIndex(uint i); void GetFileTypeIndex(out uint i);
+        void Advise(IntPtr e, out uint c); void Unadvise(uint c);
+        void SetOptions(uint o); void GetOptions(out uint o);
+        void SetDefaultFolder(IShellItem i); void SetFolder(IShellItem i);
+        void GetFolder(out IShellItem i); void GetCurrentSelection(out IShellItem i);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string n); void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string n);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t); void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string t); void GetResult(out IShellItem i);
+    }
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellItem {
+        void BindToHandler(IntPtr b, ref Guid h, ref Guid r, out IntPtr p); void GetParent(out IShellItem i);
+        void GetDisplayName(uint s, [MarshalAs(UnmanagedType.LPWStr)] out string n);
+        void GetAttributes(uint m, out uint a); void Compare(IShellItem i, uint h, out int o);
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    static extern void SHCreateItemFromParsingName(string path, IntPtr bc, ref Guid riid, out IShellItem item);
+    // Returns the chosen folder, "" when cancelled; throws when the dialog is unavailable.
+    public static string Pick(IntPtr owner, string title, string start) {
+        IFileDialog d = (IFileDialog)new FileOpenDialogRCW();
+        uint o; d.GetOptions(out o);
+        d.SetOptions(o | 0x20 | 0x40 | 0x800);   // PICKFOLDERS | FORCEFILESYSTEM | PATHMUSTEXIST
+        if (!String.IsNullOrEmpty(title)) d.SetTitle(title);
+        if (!String.IsNullOrEmpty(start)) {
+            try { Guid g = typeof(IShellItem).GUID; IShellItem s; SHCreateItemFromParsingName(start, IntPtr.Zero, ref g, out s); d.SetFolder(s); } catch { }
+        }
+        if (d.Show(owner) != 0) return "";
+        IShellItem r; d.GetResult(out r);
+        string path; r.GetDisplayName(0x80058000, out path);   // SIGDN_FILESYSPATH
+        return path;
+    }
+}
+'@
 function Select-Folder([string]$description, [string]$start) {
-    $d = New-Object System.Windows.Forms.FolderBrowserDialog
-    $d.Description = $description
-    if ($start -and (Test-Path -LiteralPath $start)) { $d.SelectedPath = $start }
-    if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $d.SelectedPath }
-    return $null
+    if ($start -and -not (Test-Path -LiteralPath $start)) { $start = '' }
+    try {
+        if (-not ('PanelFolderPicker' -as [type])) { Add-Type -TypeDefinition $FOLDER_PICKER_CS -Language CSharp }
+        $owner = (New-Object System.Windows.Interop.WindowInteropHelper($win)).Handle
+        $p = [PanelFolderPicker]::Pick($owner, $description, $start)
+        if ($p) { return $p }
+        return $null
+    } catch {
+        $d = New-Object System.Windows.Forms.FolderBrowserDialog
+        $d.Description = $description
+        if ($start) { $d.SelectedPath = $start }
+        if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $d.SelectedPath }
+        return $null
+    }
 }
 
 # ------------------------------------------------------------------------------
@@ -413,6 +466,8 @@ function Start-Task([string]$title, [scriptblock]$work, [hashtable]$A, [scriptbl
     $ui.TaskLog.Text = ''
     $ui.TaskBar.Value = 0
     $script:TaskStart = Get-Date
+    $script:TaskNet0 = Get-NetReceivedBytes
+    $script:TaskNetText = ''
     Open-Panel 'PanelTask' 680
     $script:TaskHandle = $ps.BeginInvoke()
     $script:TaskTimer.Start()
@@ -428,10 +483,40 @@ function Read-TaskLines {
     if ($last) { $ui.TaskLog.ScrollToEnd(); $ui.TaskStep.Text = $last.Trim() }
 }
 
+# Bytes this PC received so far, over its real network adapters (not the WSL /
+# Hyper-V virtual ones, which would count the same download twice). Downloads
+# inside a distro (wsl --install, apt, Flatpak) print little progress of their
+# own, so the task dialog shows this instead - an estimate: other programs'
+# downloads count too.
+function Get-NetReceivedBytes {
+    try {
+        $sum = [long]0
+        foreach ($n in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+            if ($n.OperationalStatus -ne 'Up' -or $n.NetworkInterfaceType -eq 'Loopback') { continue }
+            if ($n.Name -like 'vEthernet*' -or $n.Description -match 'Hyper-V|WSL') { continue }
+            $sum += $n.GetIPv4Statistics().BytesReceived
+        }
+        return $sum
+    } catch { return [long]-1 }
+}
+$script:TaskTickCount = 0
+
 $script:TaskTimer.Add_Tick({
     Read-TaskLines
     $ui.TaskBar.Value = ($ui.TaskBar.Value + 2) % 100
-    $ui.TaskTime.Text = '{0:m\:ss}' -f ((Get-Date) - $script:TaskStart)
+    $elapsed = '{0:m\:ss}' -f ((Get-Date) - $script:TaskStart)
+    # Every second: how much was downloaded since the task started.
+    $script:TaskTickCount++
+    if ($script:TaskTickCount % 5 -eq 0 -or -not $script:TaskNetText) {
+        $script:TaskNetText = ''
+        $now = Get-NetReceivedBytes
+        if ($script:TaskNet0 -ge 0 -and $now -ge $script:TaskNet0) {
+            $mb = ($now - $script:TaskNet0) / 1MB
+            $secs = ((Get-Date) - $script:TaskStart).TotalSeconds
+            if ($mb -ge 1) { $script:TaskNetText = '   {0:N0} MB downloaded ({1:N1} MB/s)' -f $mb, ($mb / [math]::Max(1, $secs)) }
+        }
+    }
+    $ui.TaskTime.Text = $elapsed + $script:TaskNetText
     if (-not $script:TaskHandle.IsCompleted) { return }
 
     $script:TaskTimer.Stop()
@@ -543,6 +628,13 @@ function Show-DistroPage {
     $desk = Get-DistroDesktop $d.Name
     $ui.DeskCurrent.Text = $(if ($desk) { "$($DESKTOP_NAMES[$desk]) - chosen in the panel. Choose desktop to switch to another one." }
                              else { 'Not chosen in the panel yet. A desktop installed by an older version is XFCE.' })
+    if (Get-DistroStartMenuHidden $d.Name) {
+        $ui.StartMenuText.Text = "This distro's Linux apps are kept out of the Windows Start menu (they stay in the Linux desktop's menu). App store apps always show."
+        $ui.BtnStartMenu.Content = 'Show them'
+    } else {
+        $ui.StartMenuText.Text = "WSL puts this distro's Linux apps in the Windows Start menu. Hide them to keep the Start menu tidy - App store apps always show."
+        $ui.BtnStartMenu.Content = 'Hide them'
+    }
     Update-LiveStatus
 }
 
@@ -598,8 +690,11 @@ function Update-LiveStatus {
         $ui.LiveMemNote.Text = $(if ($limit -gt 0) { 'In use, of the {0:N1} GB WSL may use' -f $limit } else { 'In use' })
         $ui.LiveMemBar.Value = $(if ($limit -gt 0) { [math]::Min(100, 100 * $used / $limit) } else { 0 })
         # WSL started (a terminal or app opened elsewhere): show which distro runs.
-        if (-not $script:VmWasUp -and -not @($script:Distros | Where-Object { $_.State -eq 'Running' }).Count) { Update-DistroList }
+        # VmWasUp is set first: Update-DistroList shows the page, which calls
+        # this function again.
+        $wasUp = $script:VmWasUp
         $script:VmWasUp = $true
+        if (-not $wasUp -and -not @($script:Distros | Where-Object { $_.State -eq 'Running' }).Count) { Update-DistroList }
     } else {
         $ui.LiveMem.Text = '0 GB'
         $ui.LiveMemNote.Text = 'WSL is not running'
@@ -932,9 +1027,15 @@ $ui.AccountList.AddHandler([Windows.Controls.Button]::ClickEvent, [Windows.Route
     $b = $e.OriginalSource
     $d = (Get-CurrentDistro).Name
     if ([string]$b.Content -eq 'Remove') {
-        Remove-SavedAccount $d ([string]$b.Tag)
-        Show-DistroPage
-        Show-Toast "Removed saved account '$($b.Tag)' (the Linux user is untouched)."
+        $script:RemoveAcct = @{ Distro = $d; User = [string]$b.Tag }
+        Show-Message "Remove the saved login '$($b.Tag)'?" ("The panel forgets this login and its saved password, so Open desktop no longer signs in by itself.`n`n" +
+            "The Linux user '$($b.Tag)' and its files in $d are NOT touched - you can save the login again with Add account.") @(
+            @{ Text = 'Remove'; Style = 'DangerBtn'; Do = {
+                Remove-SavedAccount $script:RemoveAcct.Distro $script:RemoveAcct.User
+                Show-DistroPage
+                Show-Toast "Removed saved login '$($script:RemoveAcct.User)' (the Linux user is untouched)."
+            } },
+            @{ Text = 'Cancel' })
     } else {
         Open-UserDialog 'password' $d '' ([string]$b.Tag)
     }
@@ -966,6 +1067,17 @@ $ui.BtnSystemd.Add_Click({
             @{ Text = 'Cancel' })
     }
 })
+$ui.BtnStartMenu.Add_Click({
+    $d = (Get-CurrentDistro).Name
+    $A = @{ Distro = $d; Hide = (-not (Get-DistroStartMenuHidden $d)) }
+    $script:StartMenuHide = $A.Hide
+    Start-Task $(if ($A.Hide) { "Hiding $d's apps from the Start menu" } else { "Showing $d's apps in the Start menu" }) { Set-DistroStartMenu $A.Distro $A.Hide } $A {
+        param($ok)
+        Show-DistroPage
+        if (-not $ok) { Show-Failure 'Could not change the Start menu entries' 'The distro did not answer. Try again.'; return }
+        Show-Toast $(if ($script:StartMenuHide) { 'Hidden. The Start menu updates the next time the distro starts.' } else { 'Shown again. The Start menu updates the next time the distro starts.' })
+    }
+})
 $ui.BtnCompact.Add_Click({ Show-CompactDialog (Get-CurrentDistro).Name })
 $ui.BtnOpenDiskFolder.Add_Click({ Open-InExplorer $script:DiskFile })
 $ui.BtnDelete.Add_Click({
@@ -981,7 +1093,11 @@ $ui.DelName.Add_TextChanged({ $ui.BtnDelOk.IsEnabled = ($ui.DelName.Text -ceq $s
 $ui.BtnDelCancel.Add_Click({ Close-Dialog; Show-Toast 'Cancelled - nothing was deleted.' 'Warn' })
 $ui.BtnDelOk.Add_Click({
     Start-Task "Deleting $($script:DelDistro)" { Remove-WslDistro $A.Name } @{ Name = $script:DelDistro } {
-        param($x) Update-DistroList; Show-Toast "$($script:DelDistro) was deleted."
+        param($x) Update-DistroList
+        # The next distro's page opens at the top, so its own Delete button is
+        # not right under the pointer that just deleted this one.
+        $ui.DistroPage.ScrollToTop()
+        Show-Toast "$($script:DelDistro) was deleted."
     }
 })
 
@@ -1101,7 +1217,8 @@ $ui.BtnBackup.Add_Click({
     $cur = Get-CurrentDistro
     if ($cur) { $ui.BakList.SelectedItem = $cur.Name }
     $script:BakDir = ''
-    $ui.BakTar.IsChecked = $true
+    # The format chosen last time.
+    if ($Global:Config.BackupFormat -eq 'vhdx') { $ui.BakVhdx.IsChecked = $true } else { $ui.BakTar.IsChecked = $true }
     Update-BackupForm
     Open-Panel 'PanelBackup' 560
 })
@@ -1115,7 +1232,9 @@ $ui.BtnBakCancel.Add_Click({ Close-Dialog })
 $ui.BtnBakOk.Add_Click({
     $problem = Set-DataFolder 'BackupBase' $script:BakDir   # Restore lists the backups found there
     if ($problem) { Show-Toast $problem 'Error'; return }
-    Start-Backup @{ Name = [string]$ui.BakList.SelectedItem; Dir = $script:BakDir; Ext = $(if ($ui.BakVhdx.IsChecked) { 'vhdx' } else { 'tar' }); ShutdownFirst = $false }
+    $ext = $(if ($ui.BakVhdx.IsChecked) { 'vhdx' } else { 'tar' })
+    if ($Global:Config.BackupFormat -ne $ext) { $Global:Config.BackupFormat = $ext; try { Save-Config } catch { } }
+    Start-Backup @{ Name = [string]$ui.BakList.SelectedItem; Dir = $script:BakDir; Ext = $ext; ShutdownFirst = $false }
 })
 
 function Start-Backup($A) {
@@ -1506,33 +1625,35 @@ $ui.BtnStoreClose.Add_Click({ Close-Dialog })
 # ------------------------------------------------------------------------------
 function Get-Dots([int]$n) { return ([string][char]0x25CF) * $n + ([string][char]0x25CB) * (5 - $n) }
 $DesktopCards = @(
-    @{ Id = 'xfce'; Looks = 'Classic: a menu bar on top and a dock below'; W = 3; M = 2; C = 4; L = 4; Size = 'about 400 MB'
+    @{ Id = 'xfce'; Looks = 'Classic: a menu bar on top and a dock below'; W = 3; M = 2; C = 4; L = 4; Size = 'about 500 MB'
        Note = 'The panel''s standard desktop. Works on every distro the panel supports.'
        Wall = '#FF2F5D8A'; Top = 'Visible'; Bottom = 'Collapsed'; Dock = 'Visible'; Corner = '3'; StartColor = '#FFBDBDBD' }
-    @{ Id = 'kde'; Looks = 'The closest to Windows 10 and 11'; W = 5; M = 3; C = 5; L = 2; Size = 'about 1 - 1.5 GB'
+    @{ Id = 'kde'; Looks = 'The closest to Windows 10 and 11'; W = 5; M = 3; C = 5; L = 2; Size = 'about 1.3 GB'
        Note = 'Can be themed to look like almost anything. Not on Fedora: its KDE has no Remote Desktop (X11) session any more.'
        Wall = '#FF1D3A6E'; Top = 'Collapsed'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '6'; StartColor = '#FF3DAEE9' }
-    @{ Id = 'cinnamon'; Looks = 'Like Windows 10: simple and familiar'; W = 4; M = 1; C = 3; L = 3; Size = 'about 700 MB'
+    @{ Id = 'cinnamon'; Looks = 'Like Windows 10: simple and familiar'; W = 4; M = 1; C = 3; L = 3; Size = 'about 900 MB'
        Note = 'Easy for people coming from Windows - the desktop of Linux Mint.'
        Wall = '#FF3B6E4F'; Top = 'Collapsed'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '6'; StartColor = '#FF8FC04A' }
-    @{ Id = 'mate'; Looks = 'Old-school: one panel on top, one at the bottom'; W = 3; M = 1; C = 3; L = 4; Size = 'about 450 MB'
+    @{ Id = 'mate'; Looks = 'Old-school: one panel on top, one at the bottom'; W = 3; M = 1; C = 3; L = 4; Size = 'about 800 MB'
        Note = 'Stable and light; keeps the classic GNOME 2 look.'
        Wall = '#FF4E6B35'; Top = 'Visible'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '2'; StartColor = '#FF9CCB6B' }
-    @{ Id = 'lxqt'; Looks = 'A basic Windows-style taskbar'; W = 4; M = 1; C = 2; L = 5; Size = 'about 250 MB'
-       Note = 'The lightest choice - best for older or slower PCs.'
+    @{ Id = 'lxqt'; Looks = 'A basic Windows-style taskbar'; W = 4; M = 1; C = 2; L = 5; Size = 'about 500 MB'
+       Note = 'The lightest on memory - best for older or slower PCs.'
        Wall = '#FF54456E'; Top = 'Collapsed'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '2'; StartColor = '#FF4A90D9' }
 )
 
 $script:DeskDistro = ''
-function Show-DesktopPicker([string]$distro) {
+function Show-DesktopPicker([string]$distro, $info = $null) {
     $script:DeskDistro = $distro
-    $cur = Get-DistroDesktop $distro
+    $installed = @(); $cur = Get-DistroDesktop $distro
+    if ($info) { $installed = @($info.Installed); if ($info.Current) { $cur = $info.Current } }
+    $script:DeskInstalled = $installed
     $rows = @(foreach ($c in $DesktopCards) {
         [pscustomobject]@{ Id = $c.Id; Name = $DESKTOP_NAMES[$c.Id]; Looks = $c.Looks; Note = $c.Note; Size = $c.Size
                            Windows = (Get-Dots $c.W); Mac = (Get-Dots $c.M); Custom = (Get-Dots $c.C); Light = (Get-Dots $c.L)
                            Wall = $c.Wall; Top = $c.Top; Bottom = $c.Bottom; Dock = $c.Dock; StartAlign = 'Left'; StartColor = $c.StartColor
                            WinCorner = $c.Corner; TitleCorner = "$($c.Corner),$($c.Corner),0,0"
-                           Badge = $(if ($c.Id -eq $cur) { 'Current' } else { '' }) }
+                           Badge = $(if ($c.Id -eq $cur) { 'Current' } elseif ($installed -contains $c.Id) { 'Installed' } else { '' }) }
     })
     $ui.DeskTitle.Text = "Choose a desktop for $distro"
     $ui.DeskList.ItemsSource = $rows
@@ -1543,22 +1664,39 @@ function Show-DesktopPicker([string]$distro) {
 }
 function Update-DeskForm {
     $sel = $ui.DeskList.SelectedItem
-    $ui.BtnDeskOk.IsEnabled = ($null -ne $sel)
-    $ui.BtnDeskOk.Content = $(if ($sel) { "Install $($sel.Name)" } else { 'Install' })
+    $ui.BtnDeskOk.IsEnabled = ($null -ne $sel -and $sel.Badge -ne 'Current')
+    $ui.BtnDeskOk.Content = $(if (-not $sel) { 'Install' }
+                              elseif ($sel.Badge -eq 'Current') { "$($sel.Name) is in use" }
+                              elseif ($sel.Badge -eq 'Installed') { "Switch to $($sel.Name)" }
+                              else { "Install $($sel.Name)" })
 }
 $ui.DeskList.Add_SelectionChanged({ Update-DeskForm })
 $ui.BtnDeskCancel.Add_Click({ Close-Dialog })
-$ui.BtnDeskOk.Add_Click({ $sel = $ui.DeskList.SelectedItem; if ($sel) { Start-DesktopInstall $sel.Id } })
+$ui.BtnDeskOk.Add_Click({
+    $sel = $ui.DeskList.SelectedItem
+    if (-not $sel) { return }
+    if ($sel.Badge -ne 'Installed') { Start-DesktopInstall $sel.Id; return }
+    # Already installed: only the session changes, nothing is downloaded.
+    $A = @{ Distro = $script:DeskDistro; Desktop = $sel.Id }
+    $script:DeskSwitch = $sel.Id
+    Start-Task "Switching $($A.Distro) to $($DESKTOP_NAMES[$A.Desktop])" { Set-DistroSession $A.Distro $A.Desktop } $A {
+        param($ok)
+        if ($ok) {
+            Show-Info "$($DESKTOP_NAMES[$script:DeskSwitch]) is chosen" ("Remote Desktop now starts $($DESKTOP_NAMES[$script:DeskSwitch]).`n`n" +
+                'If a Remote Desktop window of it is open, sign out of that desktop first (closing the window is not enough) - the next login starts the new one.')
+        } else { Show-Failure 'Could not switch the desktop' 'The distro did not answer. Try again, or install the desktop again.' }
+    }
+})
 $ui.BtnChooseDesktop.Add_Click({
     $d = (Get-CurrentDistro).Name
     $script:Open = @{ Distro = $d; Account = (Get-OpenAsAccount); Mode = 'Desktop'; AfterInstall = $false; SkipFirstUser = $false
                       Port = (Get-DistroPort $d); IsKali = $false; ChangeOnly = $true }
-    Start-Task "Checking $d" { Test-KaliDistro $A.Distro } @{ Distro = $d } {
-        param($kali)
-        if ($kali) {
+    Start-Task "Checking $d" { Get-DistroDesktopInfo $A.Distro } @{ Distro = $d } {
+        param($info)
+        if ($info.IsKali) {
             Show-Info 'Kali has its own desktop' ("$($script:Open.Distro) is Kali Linux, which opens Kali's own XFCE through Win-KeX. " +
                 'Press Open desktop: it installs that desktop the first time.')
-        } else { Show-DesktopPicker $script:Open.Distro }
+        } else { Show-DesktopPicker $script:Open.Distro $info }
     }
 })
 

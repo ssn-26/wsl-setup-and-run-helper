@@ -23,6 +23,26 @@ tagging. Headings are `## <version>`, exactly as in `PANEL_VERSION`.
   (`WSL-Control-Panel-SHA256SUMS.txt`), and **Update now** installs a download
   only if it matches.
 - The desktop shortcut is now a choice in the Setup (on by default).
+- **Smaller desktops.** On Debian and Ubuntu a desktop no longer pulls in
+  printer tools, screensavers and other extras: XFCE or LXQt is about 500 MB
+  instead of up to 1.7 GB. LXQt's "Power Management crashed" popup is gone,
+  and so are the "shortcut cannot be registered" popups at login.
+- **Right time.** The Linux clock follows your Windows time zone.
+- **Tidy Start menu.** A desktop's own apps are kept out of the Windows Start
+  menu (they stay in the Linux menu); a switch on the distro page shows them.
+- **Choose desktop** shows which desktops are installed and which one is in
+  use, and switches to an installed one in seconds.
+- Long downloads show how many MB have arrived. Folder pickers are the normal
+  Windows ones and open where you were last time; Back up remembers .tar or
+  .vhdx. Removing a saved login asks first.
+- Two distros' desktops can be open at the same time again (they no longer
+  fight over the same display number).
+- Fixed: a backup right after using a distro ("file in use"), the size of a
+  distro restored from .vhdx, a second copy of a distro under a new name,
+  empty folders after a failed download, and Terminal starting in the app's
+  folder.
+- Fixed: a silent Setup install into a chosen folder (`/DIR=`) stopped with
+  "You must enter a full path".
 - Tidier folders: the app's files are now in one `app` folder (`app\windows`
   and `app\linux`). Updating moves an existing install over by itself; your
   logins and settings stay. `WSL-Control-Panel.bat` is gone: install the app,

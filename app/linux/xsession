@@ -5,6 +5,30 @@ export GDK_BACKEND=x11
 export QT_QPA_PLATFORM=xcb
 export XDG_SESSION_TYPE=x11
 
+# Apps hidden from the Windows Start menu keep a visible copy here, which the
+# Linux desktop's menu reads first (see app/linux/startmenu.sh).
+case ":${XDG_DATA_DIRS}:" in
+    *:/usr/share/wsl-panel:*) ;;
+    *) export XDG_DATA_DIRS="/usr/share/wsl-panel:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
+esac
+
+# Remote Desktop's keyboard map has no media keys, so desktop panels show
+# "shortcut XF86AudioMute can not be registered" at every login. Give them
+# key codes that have no key yet.
+if command -v xmodmap >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
+    FREE=$(xmodmap -pke 2>/dev/null | awk 'NF == 3 && $3 == "=" { print $2 }')
+    MAP=""
+    for K in XF86AudioMute XF86AudioLowerVolume XF86AudioRaiseVolume XF86AudioMicMute XF86AudioPlay XF86AudioStop \
+             XF86AudioPrev XF86AudioNext XF86Eject XF86MonBrightnessDown XF86MonBrightnessUp; do
+        xmodmap -pke 2>/dev/null | grep -q " $K\( \|$\)" && continue
+        C=$(echo "$FREE" | head -n 1); [ -n "$C" ] || break
+        FREE=$(echo "$FREE" | sed 1d)
+        MAP="$MAP
+keycode $C = $K"
+    done
+    [ -n "$MAP" ] && echo "$MAP" | xmodmap - 2>/dev/null
+fi
+
 # Route audio to WSLg's PulseAudio server for working sound in Remote Desktop.
 if [ -e /mnt/wslg/PulseServer ]; then
     export PULSE_SERVER=/mnt/wslg/PulseServer

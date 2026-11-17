@@ -50,12 +50,14 @@ function Get-Config {
         WslBase        = ''
         BackupBase     = ''
         DefaultRdpPort = 3390
+        BackupFormat   = 'tar'   # the format chosen for the last backup
     }
     if (Test-Path -LiteralPath $CONFIG_FILE) {
         try {
             $saved = Get-Content -LiteralPath $CONFIG_FILE -Raw | ConvertFrom-Json
             if ($saved.WslBase)        { $cfg.WslBase = [string]$saved.WslBase }
             if ($saved.BackupBase)     { $cfg.BackupBase = [string]$saved.BackupBase }
+            if ($saved.BackupFormat -in 'tar', 'vhdx') { $cfg.BackupFormat = [string]$saved.BackupFormat }
             if ($saved.DefaultRdpPort) { $cfg.DefaultRdpPort = [int]$saved.DefaultRdpPort }
         } catch { }
     }
@@ -721,6 +723,15 @@ if [ -f /etc/xrdp/xrdp.ini ] && ! grep -Eq "^port=$PORT[[:space:]]*$" /etc/xrdp/
     sed -i -E "/^\[Globals\]/,/^\[/ s/^port=[0-9]+[[:space:]]*$/port=$PORT/" /etc/xrdp/xrdp.ini
     CHANGED=1
 fi
+# All WSL2 distros share one network, and with it the X display numbers: a
+# second distro's desktop cannot start on :10 while another distro has a
+# session there. Each port gets its own two display numbers, within xrdp's
+# limit of 63 (ports 25 apart share them - two such distros are rare).
+OFFSET=$((10 + (PORT % 25) * 2))
+if [ -f /etc/xrdp/sesman.ini ] && ! grep -Eq "^X11DisplayOffset=$OFFSET[[:space:]]*$" /etc/xrdp/sesman.ini; then
+    sed -i -E "s/^X11DisplayOffset=[0-9]+[[:space:]]*$/X11DisplayOffset=$OFFSET/" /etc/xrdp/sesman.ini
+    CHANGED=1
+fi
 ACT=start; [ "$CHANGED" = 1 ] && ACT=restart
 if service xrdp $ACT >/dev/null 2>&1; then :
 elif systemctl $ACT xrdp >/dev/null 2>&1; then systemctl $ACT xrdp-sesman >/dev/null 2>&1
@@ -799,7 +810,9 @@ function Invoke-WslScriptStreamed([string]$distro, [string]$script, [string[]]$S
     Set-Content -LiteralPath $tmp -Value (ConvertTo-Base64 $script) -Force -Encoding Ascii
     $argText = (@($ScriptArgs) | ForEach-Object { "'" + ($_ -replace "'", "'\''") + "'" }) -join ' '
     $sh = '/tmp/wsl-panel-' + [guid]::NewGuid().ToString('N') + '.sh'
-    $cmd = "tr -d '\r' | base64 -d > $sh && { bash $sh $argText </dev/null 2>&1 | tee $log; rc=`${PIPESTATUS[0]}; rm -f $sh; exit `$rc; }"
+    # tr keeps only base64 characters: depending on the console's input encoding
+    # Windows can put a UTF-8 BOM (and CR LF) in front of / after what is sent.
+    $cmd = "tr -cd 'A-Za-z0-9+/=' | base64 -d > $sh && { bash $sh $argText </dev/null 2>&1 | tee $log; rc=`${PIPESTATUS[0]}; rm -f $sh; exit `$rc; }"
     try {
         return (Invoke-WslStreamed @('-d', $distro, '-u', 'root', '-e', 'bash', '-c', $cmd) $tmp)
     } finally {
@@ -810,6 +823,37 @@ function Invoke-WslScriptStreamed([string]$distro, [string]$script, [string[]]$S
 # The desktops the picker offers. Id is what install-desktop.sh takes.
 $DESKTOP_IDS = 'xfce', 'kde', 'cinnamon', 'mate', 'lxqt'
 $DESKTOP_NAMES = @{ xfce = 'XFCE'; kde = 'KDE Plasma'; cinnamon = 'Cinnamon'; mate = 'MATE'; lxqt = 'LXQt' }
+# The command that starts each desktop (as in install-desktop.sh and xsession).
+$DESKTOP_SESSIONS = @{ xfce = 'startxfce4'; kde = 'startplasma-x11'; cinnamon = 'cinnamon-session'; mate = 'mate-session'; lxqt = 'startlxqt' }
+
+# What a distro has: @{ IsKali; Installed = @(ids); Current = id or '' }.
+# Current is the desktop Remote Desktop starts: /etc/wsl-panel-session, or
+# XFCE when that file is missing (what the session file falls back to).
+function Get-DistroDesktopInfo([string]$distro) {
+    $checks = ($DESKTOP_IDS | ForEach-Object { "command -v $($DESKTOP_SESSIONS[$_]) >/dev/null 2>&1 && echo HAS=$_" }) -join '; '
+    $cmd = '. /etc/os-release 2>/dev/null; echo "ID=$ID"; ' + $checks + '; [ -r /etc/wsl-panel-session ] && echo "CUR=$(head -n1 /etc/wsl-panel-session)"; true'
+    $res = Invoke-WslQuiet @('-d', $distro, '-e', 'sh', '-c', $cmd)
+    $info = @{ IsKali = $false; Installed = @(); Current = '' }
+    foreach ($l in $res.Output) {
+        if ($l -eq 'ID=kali') { $info.IsKali = $true }
+        elseif ($l -match '^HAS=(\w+)$') { $info.Installed += $Matches[1] }
+        elseif ($l -match '^CUR=(\S+)') { $c = $Matches[1]; $info.Current = [string]($DESKTOP_IDS | Where-Object { $DESKTOP_SESSIONS[$_] -eq $c } | Select-Object -First 1) }
+    }
+    if (-not $info.Current -and $info.Installed -contains 'xfce') { $info.Current = 'xfce' }
+    if ($info.Current -and $info.Installed -notcontains $info.Current) { $info.Current = '' }
+    return $info
+}
+
+# Makes Remote Desktop start an already installed desktop (no download): the
+# session file and the panel's record. Returns $true on success.
+function Set-DistroSession([string]$distro, [string]$desktop) {
+    if ($DESKTOP_IDS -notcontains $desktop) { throw "Unknown desktop '$desktop'." }
+    $s = $DESKTOP_SESSIONS[$desktop]
+    $res = Invoke-WslQuiet @('-d', $distro, '-u', 'root', '-e', 'sh', '-c', "command -v $s >/dev/null 2>&1 && echo $s > /etc/wsl-panel-session && chmod 644 /etc/wsl-panel-session")
+    if ($res.ExitCode -ne 0) { return $false }
+    Set-DistroDesktop $distro $desktop
+    return $true
+}
 
 # The desktop the panel last installed in a distro ('' = none yet, which for
 # a desktop installed by an older version means XFCE).
@@ -844,13 +888,65 @@ function Install-DistroDesktop([string]$distro, [int]$port, [bool]$isKali, [stri
         Write-TaskLog '(auto-detecting the package manager - this can take several minutes)'
         $rc = Invoke-WslScriptStreamed $distro (Get-ScriptWithSession 'install-desktop.sh') @([string]$port, $desktop) $log
     }
-    if ($rc -eq 0) { Set-DistroDesktop $distro $desktop }
+    if ($rc -eq 0) {
+        Set-DistroDesktop $distro $desktop
+        Set-DistroTimezone $distro | Out-Null
+        # The desktop's own apps are for the Linux desktop: keep them out of
+        # the Windows Start menu (the distro page can show them again).
+        Write-TaskLog 'Keeping the desktop''s apps out of the Windows Start menu ...'
+        Set-DistroStartMenu $distro $true | Out-Null
+    }
     $saved = Save-DistroLog $distro $log 'desktop-install'
     return @{ Ok = ($rc -eq 0); ExitCode = $rc; Log = $saved; Desktop = $desktop }
 }
 
 # Opens a Terminal window (Windows Terminal when installed), as the saved
 # login when one is given.
+# The Windows time zone in the form Linux uses (e.g. Europe/Berlin), from
+# Windows' own ICU data; '' when it cannot be read.
+function Get-WindowsTimeZoneIana {
+    try {
+        [void][Windows.Globalization.Calendar, Windows.Globalization, ContentType = WindowsRuntime]
+        return [string](New-Object Windows.Globalization.Calendar).GetTimeZone()
+    } catch { return '' }
+}
+
+# Sets the distro's clock to the Windows time zone (many images start on UTC).
+# Returns $true when it was set.
+function Set-DistroTimezone([string]$distro) {
+    $zone = Get-WindowsTimeZoneIana
+    if (-not $zone) { return $false }
+    $res = Invoke-WslScript $distro 'root' (Get-ScriptText 'set-timezone.sh') @($zone)
+    foreach ($l in $res.Output) { if ($l -match 'TIMEZONE_SET|ZONE_NOT_FOUND') { Write-TaskLog " $l" } }
+    return ($res.ExitCode -eq 0)
+}
+
+# Windows Start menu entries of a distro's Linux apps (app/linux/startmenu.sh):
+# $hide = $true keeps them out (App store apps stay), $false shows them again.
+# The choice is remembered in data\config\accounts\<distro>.startmenu so the
+# distro page can show it without starting the distro. Returns $true on success.
+function Get-StartMenuFile([string]$distro) { return (Join-Path $ACCOUNTS_FOLDER "$distro.startmenu") }
+function Get-DistroStartMenuHidden([string]$distro) {
+    $f = Get-StartMenuFile $distro
+    return ((Test-Path -LiteralPath $f) -and ((Get-Content -LiteralPath $f -Raw).Trim() -eq 'hidden'))
+}
+function Set-DistroStartMenu([string]$distro, [bool]$hide) {
+    $action = $(if ($hide) { 'hide' } else { 'show' })
+    $tmp = Join-Path $env:TEMP ('wsl-panel-{0}.b64' -f [guid]::NewGuid().ToString('N'))
+    Set-Content -LiteralPath $tmp -Value (ConvertTo-Base64 (Get-ScriptText 'startmenu.sh')) -Force -Encoding Ascii
+    # Saved as a file first: "hide" copies itself as the package-manager hook.
+    $sh = '/tmp/wsl-panel-startmenu-' + [guid]::NewGuid().ToString('N') + '.sh'
+    $cmd = "tr -cd 'A-Za-z0-9+/=' | base64 -d > $sh && sh $sh $action; rc=`$?; rm -f $sh; exit `$rc"
+    try {
+        $rc = Invoke-WslStreamed @('-d', $distro, '-u', 'root', '-e', 'bash', '-c', $cmd) $tmp
+    } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    if ($rc -eq 0) {
+        if (-not (Test-Path -LiteralPath $ACCOUNTS_FOLDER)) { New-Item -ItemType Directory -Path $ACCOUNTS_FOLDER -Force | Out-Null }
+        Set-Content -LiteralPath (Get-StartMenuFile $distro) -Value $(if ($hide) { 'hidden' } else { 'shown' }) -Encoding Ascii
+    }
+    return ($rc -eq 0)
+}
+
 function Open-DistroTerminal([string]$distro, [string]$account = '') {
     # --cd ~ : start in the Linux home folder, not in the app's own Windows folder.
     $a = @('-d', $distro, '--cd', '~')
@@ -876,6 +972,7 @@ function Add-PanelAccount([string]$distro, [string]$user, [string]$password, [bo
 function New-FirstUser([string]$distro, [string]$user, [string]$password) {
     if (-not (Add-PanelAccount $distro $user $password $true)) { return $false }
     Set-DefaultUser $distro $user
+    if (Set-DistroTimezone $distro) { Write-TaskLog ' The clock now follows the Windows time zone.' }
     Write-TaskLog " '$user' is now the default login, so a Terminal opens as you too."
     return $true
 }
@@ -957,6 +1054,12 @@ function Remove-WslDistro([string]$distro) {
     Remove-Item -LiteralPath (Get-AccountFile $distro) -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Get-PortFile $distro) -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Get-DesktopFile $distro) -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Get-StartMenuFile $distro) -Force -ErrorAction SilentlyContinue
+    # WSL removes the distro's Start menu entries but can leave their folder.
+    $menu = Join-Path ([Environment]::GetFolderPath('Programs')) $distro
+    if ((Test-Path -LiteralPath $menu) -and -not (Get-ChildItem -LiteralPath $menu -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $menu -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # ------------------------------------------------------------------------------
@@ -1205,6 +1308,13 @@ function Copy-WslDistro([string]$source, [string]$name, [string]$loc) {
     if (-not $isV1) {
         Write-TaskLog "Copying the disk of $source to $vhd - this can take a few minutes..."
         $rc = Invoke-WslStreamed @('--export', $source, $vhd, '--vhd')
+        # Right after the distro stopped, WSL can still hold its disk (see Export-WslDistro).
+        if ($rc -ne 0 -and $global:WslLastOutput -match 'SHARING_VIOLATION|being used by another process' -and (Get-RunningDistros).Count -eq 0) {
+            Write-TaskLog 'WSL still had the disk open - shutting WSL down and trying again ...'
+            Remove-Item -LiteralPath $vhd -Force -ErrorAction SilentlyContinue
+            Invoke-WslQuiet @('--shutdown') | Out-Null
+            $rc = Invoke-WslStreamed @('--export', $source, $vhd, '--vhd')
+        }
         if ($rc -eq 0 -and (Test-Path -LiteralPath $vhd)) {
             Write-TaskLog "Registering the copy as $name ..."
             $rc = Invoke-WslStreamed @('--import-in-place', $name, $vhd)
@@ -1234,6 +1344,7 @@ function Copy-WslDistro([string]$source, [string]$name, [string]$loc) {
     if (Test-Path -LiteralPath (Get-AccountFile $source)) { Copy-Item -LiteralPath (Get-AccountFile $source) -Destination (Get-AccountFile $name) -Force }
     $desk = Get-DistroDesktop $source
     if ($desk) { Set-DistroDesktop $name $desk }
+    if (Test-Path -LiteralPath (Get-StartMenuFile $source)) { Copy-Item -LiteralPath (Get-StartMenuFile $source) -Destination (Get-StartMenuFile $name) -Force }
     $port = Get-UnusedPort
     Set-DistroPort $name $port
     Write-TaskLog "Done. $name gets Remote Desktop port $port, so both desktops can be open at once."

@@ -136,6 +136,42 @@ function Get-InstalledDir {
     return ''
 }
 
+$INSTALL_PICKER_CS = @'
+using System;
+using System.Runtime.InteropServices;
+public static class InstallFolderPicker {
+    [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialogRCW { }
+    [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IFileDialog {
+        [PreserveSig] int Show(IntPtr parent);
+        void SetFileTypes(uint c, IntPtr t); void SetFileTypeIndex(uint i); void GetFileTypeIndex(out uint i);
+        void Advise(IntPtr e, out uint c); void Unadvise(uint c);
+        void SetOptions(uint o); void GetOptions(out uint o);
+        void SetDefaultFolder(IntPtr i); void SetFolder(IntPtr i);
+        void GetFolder(out IShellItem i); void GetCurrentSelection(out IShellItem i);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string n); void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string n);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t); void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string t); void GetResult(out IShellItem i);
+    }
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellItem {
+        void BindToHandler(IntPtr b, ref Guid h, ref Guid r, out IntPtr p); void GetParent(out IShellItem i);
+        void GetDisplayName(uint s, [MarshalAs(UnmanagedType.LPWStr)] out string n);
+        void GetAttributes(uint m, out uint a); void Compare(IShellItem i, uint h, out int o);
+    }
+    public static string Pick(IntPtr owner, string title) {
+        IFileDialog d = (IFileDialog)new FileOpenDialogRCW();
+        uint o; d.GetOptions(out o);
+        d.SetOptions(o | 0x20 | 0x40 | 0x800);
+        d.SetTitle(title);
+        if (d.Show(owner) != 0) return "";
+        IShellItem r; d.GetResult(out r);
+        string path; r.GetDisplayName(0x80058000, out path);
+        return path;
+    }
+}
+'@
+
 # Asks where to install (there is no default). A "WSL Control Panel" folder is
 # made inside the folder picked, unless it already has that name. Returns ''
 # when the user cancels.
@@ -144,11 +180,19 @@ function Select-InstallDir {
     if ([Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') {
         Add-Type -AssemblyName System.Windows.Forms
         $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }
-        $d = New-Object System.Windows.Forms.FolderBrowserDialog
-        $d.Description = 'Choose where to install WSL Control Panel. A "WSL Control Panel" folder is made inside the folder you pick.'
-        $d.ShowNewFolderButton = $true
-        try { if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $picked = $d.SelectedPath } }
-        finally { $owner.Dispose(); $d.Dispose() }
+        $title = 'Choose where to install WSL Control Panel (a "WSL Control Panel" folder is made inside)'
+        try {
+            # The standard Windows "Select folder" window (the same as in the app).
+            try {
+                if (-not ('InstallFolderPicker' -as [type])) { Add-Type -TypeDefinition $INSTALL_PICKER_CS -Language CSharp }
+                $picked = [InstallFolderPicker]::Pick($owner.Handle, $title)
+            } catch {
+                $d = New-Object System.Windows.Forms.FolderBrowserDialog
+                $d.Description = $title
+                $d.ShowNewFolderButton = $true
+                try { if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $picked = $d.SelectedPath } } finally { $d.Dispose() }
+            }
+        } finally { $owner.Dispose() }
     } else {
         # No window possible here: ask in the console instead.
         $picked = (Read-Host '  Where should the app be installed? Type a folder, e.g. D:\Apps (Enter to cancel)').Trim().Trim('"')

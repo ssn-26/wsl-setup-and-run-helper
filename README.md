@@ -122,14 +122,23 @@ closes a dialog, **Enter** presses its main button, **F5** refreshes, and
   LXQt - with a sketch of its layout, how much it looks like Windows or macOS,
   how customisable and how light it is, and its rough download size. It
   installs your choice + xrdp, auto-detecting the package manager (apt / dnf /
-  zypper / yum / pacman; on Arch it builds xrdp from the AUR). **Choose
-  desktop** on the distro page switches to another one later. (Kali keeps its
-  own XFCE through Win-KeX. Fedora's KDE has no X11 session for Remote Desktop
-  any more, so the panel says so and lets you pick another.)
+  zypper / yum / pacman; on Arch it builds xrdp from the AUR). On Debian and
+  Ubuntu it skips the optional extras (printer tools, screensavers, boot
+  splash), so a desktop is 3-4 times smaller: about 500 MB for XFCE or LXQt.
+  The clock is set to your Windows time zone. **Choose desktop** on the distro
+  page marks which desktops are already installed and which one is in use;
+  switching to an installed one takes seconds. (Kali keeps its own XFCE
+  through Win-KeX. Fedora's KDE has no X11 session for Remote Desktop any
+  more, so the panel says so and lets you pick another.)
+- **A tidy Start menu.** WSL puts every Linux app of a distro in the Windows
+  Start menu - a desktop alone adds a dozen. After a desktop install the panel
+  keeps them out (they stay in the Linux desktop's own menu, and apps installed
+  later are hidden too); **Windows Start menu** on the distro page shows them
+  again. App store apps always show.
 - **App store.** Browse Flathub's apps by category or search, with icons,
   screenshots, descriptions and download sizes, and install one into any
   distro with one click. The panel sets Flatpak up the first time (the first
-  app also downloads a shared runtime, often 300-900 MB, that later apps
+  app also downloads a shared runtime, often 300 MB - 1 GB, that later apps
   reuse). Installed apps open as normal windows on your Windows desktop
   (WSLg) and are linked into the distro's menu so WSLg can add them to the
   Windows Start menu. Uninstall removes runtimes no app needs any more.
@@ -258,7 +267,7 @@ app\
   windows\                the panel: WSL-Control-Panel.ps1 (the window), Engine.ps1 (everything
                           it does), AppIcon.ps1 (the icon), ui\MainWindow.xaml (layout and colours)
   linux\                  the Linux-side scripts (install-desktop.sh, create-user.sh, keepalive.sh,
-                          flatpak.sh for the App store)
+                          flatpak.sh for the App store, startmenu.sh, set-timezone.sh)
                           + xsession, the desktop session file both installers write
 data\                     the panel's own files (never committed to git)
   config\                 config.json + accounts\ (saved logins, passwords DPAPI-encrypted)

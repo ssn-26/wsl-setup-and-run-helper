@@ -38,13 +38,14 @@ if ($LASTEXITCODE -ne 0) { throw "Building the exe failed: $($out -join "`n")" }
 $ico = Join-Path $build 'app.ico'
 Save-AppIco $ico '#0078D4'
 
-# 2. Compile the Setup.
-$iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+# 2. Compile the Setup (Inno Setup installed for all users, or for this user
+#    only, e.g. winget install JRSoftware.InnoSetup --scope user).
+$iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
     Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $iscc) {
     'Installing Inno Setup ...'
     & choco install innosetup -y --no-progress | Out-Null
-    $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+    $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
         Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $iscc) { throw 'Inno Setup 6 could not be installed.' }
 }

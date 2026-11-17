@@ -118,7 +118,9 @@ begin
   if (CurPageID = wpSelectDir) and not DirCleared then
   begin
     DirCleared := True;
-    if WizardForm.PrevAppDir = '' then
+    // Not when a folder was given (/DIR=...) or the install is silent: then
+    // the folder is already chosen, and clearing it would stop the install.
+    if (WizardForm.PrevAppDir = '') and (ExpandConstant('{param:DIR|}') = '') and not WizardSilent then
       WizardForm.DirEdit.Text := '';
   end;
 end;
