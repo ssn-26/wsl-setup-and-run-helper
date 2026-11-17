@@ -449,6 +449,9 @@ $script:TaskTimer.Add_Tick({
     $script:TaskHandle = $null
     $script:Rs.SessionStateProxy.SetVariable('A', $null)   # drops any password it carried
     Close-Dialog
+    # A task can start or stop a distro or change its disk size (a desktop or
+    # app install, a new user): show the real state and size in the sidebar too.
+    if ($script:Distros.Count) { try { Update-DistroList } catch { } }
     if ($err) {
         Show-Failure 'Something went wrong' $err.Message
     } elseif ($script:TaskDone) {
@@ -594,6 +597,8 @@ function Update-LiveStatus {
         $ui.LiveMem.Text = '{0:N1} GB' -f $used
         $ui.LiveMemNote.Text = $(if ($limit -gt 0) { 'In use, of the {0:N1} GB WSL may use' -f $limit } else { 'In use' })
         $ui.LiveMemBar.Value = $(if ($limit -gt 0) { [math]::Min(100, 100 * $used / $limit) } else { 0 })
+        # WSL started (a terminal or app opened elsewhere): show which distro runs.
+        if (-not $script:VmWasUp -and -not @($script:Distros | Where-Object { $_.State -eq 'Running' }).Count) { Update-DistroList }
         $script:VmWasUp = $true
     } else {
         $ui.LiveMem.Text = '0 GB'
@@ -1020,19 +1025,33 @@ $ui.BtnDownload.Add_Click({
     Start-Task "Reading Microsoft's list of distros" { Get-OnlineDistros } @{} {
         param($r)
         $ui.OnlineList.ItemsSource = @($r.Rows)
+        $script:DlRows = @($r.Rows)
         $ui.DlName.Text = ''
         $script:DlBase = ''
         Update-DownloadForm
         Open-Panel 'PanelDownload' 580
     }
 })
+# What is downloaded: the distro picked in the list. Without a pick, a typed
+# name that is in the list. The Name box is what the new distro is called -
+# the same as the pick, or a new name for a second copy.
+function Get-DownloadSource {
+    if ($ui.OnlineList.SelectedItem) { return [string]$ui.OnlineList.SelectedItem.Name }
+    $typed = $ui.DlName.Text.Trim()
+    if ($script:DlRows | Where-Object { $_.Name -eq $typed }) { return $typed }
+    return ''
+}
 # The folder is never filled in for you: Download stays off until you choose one.
 function Update-DownloadForm {
     $name = $ui.DlName.Text.Trim()
+    $source = Get-DownloadSource
     $ui.DlFolder.Text = $(if (-not $script:DlBase) { $NO_FOLDER } elseif ($name) { Join-Path $script:DlBase $name } else { $script:DlBase })
-    $ui.BtnDlOk.IsEnabled = [bool]((Test-DistroName $name) -and $script:DlBase)
+    $ui.DlNameHint.Text = $(if (-not $source) { "Pick a distro in the list above." }
+                            elseif ($name -and $name -ne $source) { "Downloads $source and calls it '$name' (a separate copy)." }
+                            else { "Change the name to install a second copy of $source." })
+    $ui.BtnDlOk.IsEnabled = [bool]($source -and (Test-DistroName $name) -and $script:DlBase)
 }
-$ui.OnlineList.Add_SelectionChanged({ if ($ui.OnlineList.SelectedItem) { $ui.DlName.Text = $ui.OnlineList.SelectedItem.Name } })
+$ui.OnlineList.Add_SelectionChanged({ if ($ui.OnlineList.SelectedItem) { $ui.DlName.Text = $ui.OnlineList.SelectedItem.Name }; Update-DownloadForm })
 $ui.DlName.Add_TextChanged({ Update-DownloadForm })
 $ui.BtnDlFolder.Add_Click({
     $f = Select-Folder 'Where should the new distro be stored? (a folder named after it is created inside)' $Global:Config.WslBase
@@ -1040,23 +1059,24 @@ $ui.BtnDlFolder.Add_Click({
 })
 $ui.BtnDlCancel.Add_Click({ Close-Dialog })
 $ui.BtnDlOk.Add_Click({
-    $problem = Set-DataFolder 'WslBase' $script:DlBase   # remembered as the picker's start next time
+    $script:Dl = @{ Source = (Get-DownloadSource); Name = $ui.DlName.Text.Trim(); Base = $script:DlBase }
+    $problem = Get-DownloadProblem $script:Dl.Source $script:Dl.Name (Join-Path $script:Dl.Base $script:Dl.Name)
+    if (-not $problem) { $problem = Set-DataFolder 'WslBase' $script:DlBase }   # remembered as the picker's start next time
     if ($problem) { Show-Toast $problem 'Error'; return }
-    $script:Dl = @{ Name = $ui.DlName.Text.Trim(); Base = $script:DlBase }
-    Start-Task "Downloading $($script:Dl.Name)" { Install-WslDistro $A.Name $A.Base } $script:Dl.Clone() {
+    Start-Task "Downloading $($script:Dl.Name)" { Install-WslDistro $A.Source $A.Name $A.Base } $script:Dl.Clone() {
         param($r)
         $script:Dl.Location = $r.Location
         if ($r.Ok) { Complete-Download; return }
         Show-Message "The download / install FAILED (exit code $($r.ExitCode))" ("Common causes:`n" +
             "  - the server dropped the connection (""connection was reset""). Debian does this often.`n" +
-            "  - the name was typed wrong, or a distro with that name is already installed`n`n" +
+            "  - no internet, or not enough free space`n`n" +
             "The RESUMABLE download fetches the same official file in pieces, continues wherever the connection drops, checks its SHA-256 fingerprint, then installs it.") @(
             @{ Text = 'Try the resumable download'; Do = {
-                Start-Task "Downloading $($script:Dl.Name) (resumable)" { Install-WslDistroResumable $A.Name $A.Location } $script:Dl.Clone() {
+                Start-Task "Downloading $($script:Dl.Name) (resumable)" { Install-WslDistroResumable $A.Source $A.Name $A.Location } $script:Dl.Clone() {
                     param($r2)
                     if ($r2.Ok) { Complete-Download } else { Show-Failure 'The resumable download did not work' $r2.Message }
                 } } },
-            @{ Text = 'Cancel' })
+            @{ Text = 'Cancel'; Do = { Remove-EmptyFolder $script:Dl.Location } })
     }
 })
 
@@ -1095,19 +1115,29 @@ $ui.BtnBakCancel.Add_Click({ Close-Dialog })
 $ui.BtnBakOk.Add_Click({
     $problem = Set-DataFolder 'BackupBase' $script:BakDir   # Restore lists the backups found there
     if ($problem) { Show-Toast $problem 'Error'; return }
-    $A = @{ Name = [string]$ui.BakList.SelectedItem; Dir = $script:BakDir; Ext = $(if ($ui.BakVhdx.IsChecked) { 'vhdx' } else { 'tar' }) }
-    Start-Task "Backing up $($A.Name)" { Export-WslDistro $A.Name $A.Dir $A.Ext } $A {
+    Start-Backup @{ Name = [string]$ui.BakList.SelectedItem; Dir = $script:BakDir; Ext = $(if ($ui.BakVhdx.IsChecked) { 'vhdx' } else { 'tar' }); ShutdownFirst = $false }
+})
+
+function Start-Backup($A) {
+    $script:Bak = $A
+    Start-Task "Backing up $($A.Name)" { Export-WslDistro $A.Name $A.Dir $A.Ext $A.ShutdownFirst } $A {
         param($r)
         Update-DistroList
         if ($r.Ok) {
             Show-Info "Backup saved ($($r.GB) GB)" ("$($r.File)`n`n" +
                 "NOTE: saved panel accounts are NOT in the backup (their passwords are locked to this Windows login). " +
                 "On another PC re-add them with Add an account, switching OFF ""Also create this user inside the distro"" (the Linux user already exists inside the backup).")
+        } elseif ($r.Locked) {
+            # Other distros are running, so WSL was not shut down by itself.
+            Show-Message "The backup could not start" ("WSL still has the disk of $($script:Bak.Name) open (ERROR_SHARING_VIOLATION). " +
+                "This happens right after a distro was in use.`n`nShutting down WSL frees it. That also closes every other running distro - save your work there first.") @(
+                @{ Text = 'Shut down WSL and try again'; Do = { $b = $script:Bak.Clone(); $b.ShutdownFirst = $true; Start-Backup $b } },
+                @{ Text = 'Cancel' })
         } else {
             Show-Failure "The backup FAILED (exit code $($r.ExitCode))" "Common causes: not enough free space in $(Split-Path -Parent $r.File), or that folder cannot be written to."
         }
     }
-})
+}
 
 $script:ResFiles = @(); $script:ResPick = $null; $script:ResBase = ''
 $ui.BtnRestore.Add_Click({

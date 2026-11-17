@@ -74,7 +74,11 @@ function Copy-PanelFiles([string]$src, [string]$dest) {
     }
     $oldConfig = Join-Path $src 'data\config'
     $newConfig = Join-Path $dest 'data\config'
-    if ((Test-Path -LiteralPath $oldConfig) -and -not (Test-Path -LiteralPath $newConfig)) {
+    # Only when there is something to bring: an empty data\config (a fresh copy
+    # of the code) would only make the message below wrong.
+    $hasConfig = (Test-Path -LiteralPath $oldConfig) -and
+                 [bool](Get-ChildItem -LiteralPath $oldConfig -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($hasConfig -and -not (Test-Path -LiteralPath $newConfig)) {
         Write-Step 'Bringing along your saved logins and settings ...'
         New-Item -ItemType Directory -Force -Path (Join-Path $dest 'data') | Out-Null
         Copy-Item -LiteralPath $oldConfig -Destination $newConfig -Recurse -Force

@@ -236,7 +236,10 @@ function Get-DistroVhdInfo([string]$distroName) {
             $p = Get-ItemProperty -Path $k.PSPath -ErrorAction SilentlyContinue
             if ($p -and $p.DistributionName -eq $distroName) {
                 $base = ([string]$p.BasePath) -replace '^\\\\\?\\', ''
-                $vhdx = Join-Path $base 'ext4.vhdx'
+                # Usually ext4.vhdx, but a distro restored from a .vhdx backup
+                # keeps the backup's file name (WSL records it as VhdFileName).
+                $vhdName = $(if ([string]$p.VhdFileName) { [string]$p.VhdFileName } else { 'ext4.vhdx' })
+                $vhdx = Join-Path $base $vhdName
                 $exists = Test-Path -LiteralPath $vhdx
                 $size = 0
                 if ($exists) { $size = [math]::Round((Get-Item -LiteralPath $vhdx).Length / 1GB, 2) }
@@ -531,12 +534,15 @@ function Invoke-WslStreamed([string[]]$ArgumentList, [string]$StdinFile = $null)
     # prints UTF-16; dropping its zero bytes leaves readable text.
     $reader = New-Object System.IO.StreamReader($proc.StandardOutput.BaseStream, [System.Text.Encoding]::UTF8)
     $last = $null
+    $all = New-Object System.Collections.Generic.List[string]
     while ($null -ne ($line = $reader.ReadLine())) {
         $t = $line.Replace([string][char]0, '').TrimEnd()
-        if ($t.Trim() -and $t -ne $last) { Write-TaskLog $t; $last = $t }
+        if ($t.Trim() -and $t -ne $last) { Write-TaskLog $t; $last = $t; $all.Add($t) }
     }
     $proc.WaitForExit()
-    foreach ($l in (([string]$errTask.Result) -split "`r?`n")) { if ($l.Trim()) { Write-TaskLog $l.TrimEnd() } }
+    foreach ($l in (([string]$errTask.Result) -split "`r?`n")) { if ($l.Trim()) { Write-TaskLog $l.TrimEnd(); $all.Add($l.TrimEnd()) } }
+    # What wsl.exe printed, for callers that need to tell one error from another.
+    $global:WslLastOutput = ($all -join "`n")
     return $proc.ExitCode
 }
 
@@ -846,7 +852,8 @@ function Install-DistroDesktop([string]$distro, [int]$port, [bool]$isKali, [stri
 # Opens a Terminal window (Windows Terminal when installed), as the saved
 # login when one is given.
 function Open-DistroTerminal([string]$distro, [string]$account = '') {
-    $a = @('-d', $distro)
+    # --cd ~ : start in the Linux home folder, not in the app's own Windows folder.
+    $a = @('-d', $distro, '--cd', '~')
     if ($account) { $a += @('-u', $account) }
     $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
     if ($wt) { Start-Process -FilePath $wt.Source -ArgumentList (Join-WinArgs (@('wsl.exe') + $a)) }
@@ -969,25 +976,61 @@ function Get-OnlineDistros {
     return @{ Rows = $rows; Raw = $res.Output; ExitCode = $res.ExitCode }
 }
 
-# "wsl --install" into <base>\<name>. Returns @{ Ok; ExitCode; Location }.
-function Install-WslDistro([string]$name, [string]$base) {
+# Removes a folder made for a new distro when the install failed and left it
+# empty, so a failed download leaves nothing behind.
+function Remove-EmptyFolder([string]$path) {
+    if ($path -and (Test-Path -LiteralPath $path) -and -not (Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Why a download cannot go ahead, or $null when it can. $source is the distro
+# from Microsoft's list; $name is what it will be called (the same, or a new
+# name for a second copy).
+function Get-DownloadProblem([string]$source, [string]$name, [string]$loc) {
+    if (-not (Test-DistroName $source)) { return 'Pick a distro from the list (or type its name from the list).' }
+    if (-not (Test-DistroName $name)) { return 'A distro name can only use letters, digits, dot, - and _ (no spaces).' }
+    if (Get-WslDistros | Where-Object { $_.Name -eq $name }) {
+        return "A distro called '$name' is already installed. Type another name (e.g. $name-2) to install a second copy."
+    }
+    if ((Test-Path -LiteralPath $loc) -and (Get-ChildItem -LiteralPath $loc -Force -ErrorAction SilentlyContinue)) {
+        return "$loc already exists and is not empty. Pick another folder or name."
+    }
+    return $null
+}
+
+# "wsl --install <source>" into <base>\<name>, called <name>.
+# Returns @{ Ok; ExitCode; Location }.
+function Install-WslDistro([string]$source, [string]$name, [string]$base) {
+    if (-not $name) { $name = $source }
     $loc = Join-Path $base $name
     if (-not (Test-Path -LiteralPath $loc)) { New-Item -ItemType Directory -Path $loc -Force | Out-Null }
-    Write-TaskLog "Installing $name into $loc - this downloads several hundred MB, please wait..."
-    $rc = Invoke-WslStreamed @('--install', $name, '--location', $loc, '--no-launch')
+    Write-TaskLog "Installing $source as '$name' into $loc - this downloads several hundred MB, please wait..."
+    $a = @('--install', $source)
+    if ($name -ne $source) { $a += @('--name', $name) }
+    $rc = Invoke-WslStreamed ($a + @('--location', $loc, '--no-launch'))
+    # The resumable download reuses the folder, so it is only tidied when that
+    # fails too (Install-WslDistroResumable) or the user cancels (the window).
     return @{ Ok = ($rc -eq 0); ExitCode = $rc; Location = $loc }
 }
 
 # The resumable fallback: fetches the same official image in pieces (it
 # continues wherever the connection drops), checks its SHA-256 fingerprint,
 # then installs it. Returns @{ Ok; Message }.
-function Install-WslDistroResumable([string]$name, [string]$loc) {
+function Install-WslDistroResumable([string]$source, [string]$name, [string]$loc) {
+    $r = Install-WslDistroResumableCore $source $name $loc
+    if (-not $r.Ok) { Remove-EmptyFolder $loc }
+    return $r
+}
+
+function Install-WslDistroResumableCore([string]$source, [string]$name, [string]$loc) {
+    if (-not $name) { $name = $source }
     try {
         Write-TaskLog "Reading Microsoft's official distro list..."
         $json = Invoke-RestMethod -Uri 'https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json'
         # Each value is an array of entries, so unroll it before filtering.
-        $entry = $json.ModernDistributions.PSObject.Properties.Value | ForEach-Object { $_ } | Where-Object { $_.Name -eq $name } | Select-Object -First 1
-        if (-not $entry) { return @{ Ok = $false; Message = "'$name' has no downloadable image in Microsoft's list." } }
+        $entry = $json.ModernDistributions.PSObject.Properties.Value | ForEach-Object { $_ } | Where-Object { $_.Name -eq $source } | Select-Object -First 1
+        if (-not $entry) { return @{ Ok = $false; Message = "'$source' has no downloadable image in Microsoft's list." } }
         $key = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'Arm64Url' } else { 'Amd64Url' })
         $url = $entry.$key.Url
         $sha = ([string]$entry.$key.Sha256) -replace '^0x', ''
@@ -995,8 +1038,8 @@ function Install-WslDistroResumable([string]$name, [string]$loc) {
         # resumes a partial file of THIS image. Leftovers of older images
         # (a newer one was published since) are deleted instead.
         $tag = $sha.Substring(0, [math]::Min(12, $sha.Length)).ToLower()
-        $file = Join-Path $env:TEMP "wsl-$name-$tag.wsl"
-        Get-ChildItem -LiteralPath $env:TEMP -Filter "wsl-$name-*.wsl" -File -ErrorAction SilentlyContinue |
+        $file = Join-Path $env:TEMP "wsl-$source-$tag.wsl"
+        Get-ChildItem -LiteralPath $env:TEMP -Filter "wsl-$source-*.wsl" -File -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -ne $file } | Remove-Item -Force -ErrorAction SilentlyContinue
 
         Write-TaskLog "Downloading $url"
@@ -1032,15 +1075,34 @@ function Install-WslDistroResumable([string]$name, [string]$loc) {
 # ------------------------------------------------------------------------------
 # "wsl --export" to <dir>\<name>_<date>.<tar|vhdx>; stops the distro first.
 # Returns @{ Ok; File; GB; ExitCode }.
-function Export-WslDistro([string]$name, [string]$dir, [string]$ext) {
+# Returns @{ Ok; File; GB; ExitCode; Locked }. Locked: WSL still had the disk
+# open (ERROR_SHARING_VIOLATION) - right after a distro is stopped the WSL VM
+# can keep its disk attached. When nothing else is running, WSL is shut down
+# and the export tried once more by itself; otherwise the window offers to
+# shut WSL down ($ShutdownFirst), since that also closes the other distros.
+function Export-WslDistro([string]$name, [string]$dir, [string]$ext, [bool]$ShutdownFirst = $false) {
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $file = Join-Path $dir ("{0}_{1}.{2}" -f $name, (Get-Date -Format 'yyyy-MM-dd_HHmm'), $ext)
-    if ((Get-RunningDistros) -contains $name) { Write-TaskLog "Stopping $name ..."; Stop-Distro $name }
+    if ($ShutdownFirst) {
+        Write-TaskLog 'Shutting down WSL so the disk is free ...'
+        Stop-KexAll
+        Invoke-WslQuiet @('--shutdown') | Out-Null
+    } elseif ((Get-RunningDistros) -contains $name) {
+        Write-TaskLog "Stopping $name ..."; Stop-Distro $name
+    }
     Write-TaskLog "Exporting to $file - please wait (can take a few minutes)..."
     $a = @('--export', $name, $file)
     if ($ext -eq 'vhdx') { $a += '--vhd' }
     $rc = Invoke-WslStreamed $a
-    $result = @{ Ok = $false; File = $file; GB = 0; ExitCode = $rc }
+    $locked = ($rc -ne 0 -and $global:WslLastOutput -match 'SHARING_VIOLATION|being used by another process')
+    if ($locked -and -not $ShutdownFirst -and (Get-RunningDistros).Count -eq 0) {
+        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+        Write-TaskLog 'WSL still had the disk open - shutting WSL down and trying again ...'
+        Invoke-WslQuiet @('--shutdown') | Out-Null
+        $rc = Invoke-WslStreamed $a
+        $locked = ($rc -ne 0 -and $global:WslLastOutput -match 'SHARING_VIOLATION|being used by another process')
+    }
+    $result = @{ Ok = $false; File = $file; GB = 0; ExitCode = $rc; Locked = $locked }
     if ($rc -eq 0 -and (Test-Path -LiteralPath $file)) {
         $result.Ok = $true
         $result.GB = [math]::Round((Get-Item -LiteralPath $file).Length / 1GB, 2)

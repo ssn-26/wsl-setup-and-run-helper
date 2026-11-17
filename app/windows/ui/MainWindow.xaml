@@ -945,7 +945,7 @@
             <StackPanel DockPanel.Dock="Top">
               <TextBlock Text="Download a distro" Style="{StaticResource DialogTitle}"/>
               <TextBlock Style="{StaticResource MutedText}" FontSize="14" Margin="0,8,0,12"
-                         Text="Choose one from Microsoft's official list, or type its name."/>
+                         Text="Pick one from Microsoft's official list. Give it a new name to install a second copy."/>
             </StackPanel>
             <Border Style="{StaticResource DialogFooter}" DockPanel.Dock="Bottom">
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -954,8 +954,9 @@
               </StackPanel>
             </Border>
             <StackPanel DockPanel.Dock="Bottom">
-              <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+              <TextBlock Text="Name for it" Style="{StaticResource FieldLabel}"/>
               <TextBox x:Name="DlName" FontFamily="Cascadia Mono, Consolas"/>
+              <TextBlock x:Name="DlNameHint" Style="{StaticResource MutedText}" Margin="0,4,0,0" TextWrapping="Wrap"/>
               <TextBlock Text="Where to store it (a folder named after it is created inside)" Style="{StaticResource FieldLabel}"/>
               <DockPanel Margin="0,6,0,0">
                 <Button x:Name="BtnDlFolder" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Choose folder" Margin="8,0,0,0"/>
