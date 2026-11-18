@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 270" width="900" height="270" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <rect width="900" height="270" rx="16" fill="#f5f7fb"/>
+  <text x="450" y="38" text-anchor="middle" font-size="20" font-weight="600" fill="#1f2937">Install in 3 steps (about 1 minute)</text>
+
+  <!-- Step 1 -->
+  <rect x="30" y="62" width="265" height="180" rx="14" fill="#ffffff" stroke="#d5dbe6"/>
+  <circle cx="62" cy="94" r="18" fill="#0b63ce"/><text x="62" y="100" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">1</text>
+  <text x="90" y="100" font-size="16" font-weight="600" fill="#1f2937">Open PowerShell</text>
+  <rect x="55" y="124" width="215" height="34" rx="17" fill="#eef1f6" stroke="#c9d1de"/>
+  <circle cx="75" cy="141" r="7" fill="none" stroke="#5b6475" stroke-width="2"/><line x1="80" y1="146" x2="86" y2="152" stroke="#5b6475" stroke-width="2"/>
+  <text x="96" y="146" font-size="14" fill="#1f2937">powershell</text>
+  <text x="55" y="190" font-size="13" fill="#5b6475">Press the Windows key,</text>
+  <text x="55" y="208" font-size="13" fill="#5b6475">type powershell, press Enter.</text>
+
+  <!-- Step 2 -->
+  <rect x="317" y="62" width="265" height="180" rx="14" fill="#ffffff" stroke="#d5dbe6"/>
+  <circle cx="349" cy="94" r="18" fill="#0b63ce"/><text x="349" y="100" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">2</text>
+  <text x="377" y="100" font-size="16" font-weight="600" fill="#1f2937">Paste one line</text>
+  <rect x="342" y="120" width="215" height="44" rx="6" fill="#012456"/>
+  <text x="352" y="139" font-family="Consolas, monospace" font-size="11" fill="#eeeeee">PS&gt; irm https://raw.git...</text>
+  <text x="352" y="155" font-family="Consolas, monospace" font-size="11" fill="#eeeeee">    .../install.ps1 | iex</text>
+  <text x="342" y="190" font-size="13" fill="#5b6475">Copy the line from this page,</text>
+  <text x="342" y="208" font-size="13" fill="#5b6475">right-click to paste, press Enter.</text>
+
+  <!-- Step 3 -->
+  <rect x="604" y="62" width="265" height="180" rx="14" fill="#ffffff" stroke="#d5dbe6"/>
+  <circle cx="636" cy="94" r="18" fill="#1e8e3e"/><text x="636" y="100" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">3</text>
+  <text x="664" y="100" font-size="16" font-weight="600" fill="#1f2937">Pick a folder</text>
+  <rect x="629" y="120" width="215" height="44" rx="6" fill="#fff7e0" stroke="#e6c766"/>
+  <path d="M641 133h14l4 4h20v18h-38z" fill="#f2b600"/>
+  <text x="688" y="148" font-size="13" fill="#1f2937">D:\Apps  ...  OK</text>
+  <text x="629" y="190" font-size="13" fill="#5b6475">Choose where the app lives.</text>
+  <text x="629" y="208" font-size="13" fill="#5b6475">It opens by itself when done.</text>
+</svg>

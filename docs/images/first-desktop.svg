@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250" width="900" height="250" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <rect width="900" height="250" rx="16" fill="#f5f7fb"/>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7a8599"/></marker>
+  </defs>
+  <text x="450" y="38" text-anchor="middle" font-size="20" font-weight="600" fill="#1f2937">Your first Linux desktop: 4 clicks</text>
+
+  <g>
+    <rect x="25" y="62" width="190" height="160" rx="14" fill="#ffffff" stroke="#d5dbe6"/>
+    <circle cx="120" cy="105" r="26" fill="#cfe0f7"/>
+    <path d="M120 90v24M110 105l10 11 10-11" stroke="#0b63ce" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <text x="120" y="160" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2937">1. Download</text>
+    <text x="120" y="180" text-anchor="middle" font-size="13" fill="#5b6475">pick Ubuntu, Debian,</text>
+    <text x="120" y="197" text-anchor="middle" font-size="13" fill="#5b6475">Arch or Kali</text>
+  </g>
+  <line x1="218" y1="142" x2="242" y2="142" stroke="#7a8599" stroke-width="2.5" marker-end="url(#a)"/>
+  <g>
+    <rect x="245" y="62" width="190" height="160" rx="14" fill="#ffffff" stroke="#d5dbe6"/>
+    <circle cx="340" cy="105" r="26" fill="#cfe0f7"/>
+    <circle cx="340" cy="98" r="8" fill="#0b63ce"/><path d="M326 120c3-12 25-12 28 0" fill="#0b63ce"/>
+    <text x="340" y="160" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2937">2. Make a login</text>
+    <text x="340" y="180" text-anchor="middle" font-size="13" fill="#5b6475">choose a name</text>
+    <text x="340" y="197" text-anchor="middle" font-size="13" fill="#5b6475">and a password</text>
+  </g>
+  <line x1="438" y1="142" x2="462" y2="142" stroke="#7a8599" stroke-width="2.5" marker-end="url(#a)"/>
+  <g>
+    <rect x="465" y="62" width="190" height="160" rx="14" fill="#ffffff" stroke="#d5dbe6"/>
+    <circle cx="560" cy="105" r="26" fill="#cfe0f7"/>
+    <rect x="545" y="94" width="30" height="20" rx="3" fill="none" stroke="#0b63ce" stroke-width="3"/><line x1="553" y1="120" x2="567" y2="120" stroke="#0b63ce" stroke-width="3"/>
+    <text x="560" y="160" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2937">3. Open desktop</text>
+    <text x="560" y="180" text-anchor="middle" font-size="13" fill="#5b6475">first time it installs</text>
+    <text x="560" y="197" text-anchor="middle" font-size="13" fill="#5b6475">one (5 - 20 min)</text>
+  </g>
+  <line x1="658" y1="142" x2="682" y2="142" stroke="#7a8599" stroke-width="2.5" marker-end="url(#a)"/>
+  <g>
+    <rect x="685" y="62" width="190" height="160" rx="14" fill="#1e8e3e"/>
+    <circle cx="780" cy="105" r="26" fill="#ffffff" opacity="0.9"/>
+    <path d="M768 105l8 8 16-16" stroke="#1e8e3e" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="780" y="160" text-anchor="middle" font-size="16" font-weight="600" fill="#ffffff">4. Done!</text>
+    <text x="780" y="180" text-anchor="middle" font-size="13" fill="#d7f3de">Linux opens in a</text>
+    <text x="780" y="197" text-anchor="middle" font-size="13" fill="#d7f3de">Windows window</text>
+  </g>
+</svg>
