@@ -784,7 +784,7 @@ function Complete-Open($r) {
             Show-Message "$d has no desktop yet" ("This distro has no desktop server the panel knows how to open. Most distros open via xrdp (Remote Desktop); Kali opens via Win-KeX.`n`n" +
                 "The panel can download and install one now (needs internet and a few hundred MB or more; it can take several minutes - Arch is the slowest, because it builds xrdp).") @(
                 @{ Text = $(if ($r.IsKali) { 'Install the desktop now' } else { 'Choose a desktop' }); Do = {
-                    if ($script:Open.IsKali) { Start-DesktopInstall 'xfce' } else { Show-DesktopPicker $script:Open.Distro } } },
+                    if ($script:Open.IsKali) { Start-DesktopInstall 'xfce' } else { Open-DesktopPicker $script:Open.Distro } } },
                 @{ Text = 'Open a Terminal instead'; Style = 'Btn'; Do = { $script:Open.Mode = 'Terminal'; Start-Open } },
                 @{ Text = 'Cancel' })
         }
@@ -816,7 +816,7 @@ function Start-DesktopInstall([string]$desktop = 'xfce') {
         } elseif ($r.ExitCode -eq 23) {
             Show-Message "$name is not available for $($script:Open.Distro)" ("This distro has no $name session that Remote Desktop can start (for example, Fedora's KDE only runs without Remote Desktop now). " +
                 'Nothing else was changed - pick another desktop.') @(
-                @{ Text = 'Choose another'; Do = { Show-DesktopPicker $script:Open.Distro } },
+                @{ Text = 'Choose another'; Do = { Open-DesktopPicker $script:Open.Distro } },
                 @{ Text = 'Cancel' })
         } else {
             $msg = "Exit code $($r.ExitCode). Common causes:`n  - no internet connection inside the distro`n  - the package manager is locked by another update running now`n" +
@@ -1629,7 +1629,7 @@ $DesktopCards = @(
        Note = 'The panel''s standard desktop. Works on every distro the panel supports.'
        Wall = '#FF2F5D8A'; Top = 'Visible'; Bottom = 'Collapsed'; Dock = 'Visible'; Corner = '3'; StartColor = '#FFBDBDBD' }
     @{ Id = 'kde'; Looks = 'The closest to Windows 10 and 11'; W = 5; M = 3; C = 5; L = 2; Size = 'about 1.3 GB'
-       Note = 'Can be themed to look like almost anything. Not on Fedora: its KDE has no Remote Desktop (X11) session any more.'
+       Note = 'Can be themed to look like almost anything. Some distros (Arch, Fedora) no longer ship the X11 session Remote Desktop needs.'
        Wall = '#FF1D3A6E'; Top = 'Collapsed'; Bottom = 'Visible'; Dock = 'Collapsed'; Corner = '6'; StartColor = '#FF3DAEE9' }
     @{ Id = 'cinnamon'; Looks = 'Like Windows 10: simple and familiar'; W = 4; M = 1; C = 3; L = 3; Size = 'about 900 MB'
        Note = 'Easy for people coming from Windows - the desktop of Linux Mint.'
@@ -1648,24 +1648,30 @@ function Show-DesktopPicker([string]$distro, $info = $null) {
     $installed = @(); $cur = Get-DistroDesktop $distro
     if ($info) { $installed = @($info.Installed); if ($info.Current) { $cur = $info.Current } }
     $script:DeskInstalled = $installed
+    $unavailable = @(); if ($info -and $info.Unavailable) { $unavailable = @($info.Unavailable) }
     $rows = @(foreach ($c in $DesktopCards) {
-        [pscustomobject]@{ Id = $c.Id; Name = $DESKTOP_NAMES[$c.Id]; Looks = $c.Looks; Note = $c.Note; Size = $c.Size
+        # Checked before download: the distro's packages have no X11 session for it.
+        $blocked = ($unavailable -contains $c.Id -and $installed -notcontains $c.Id)
+        $note = $(if ($blocked) { "Does not work on $distro`: its packages have no Remote Desktop (X11) session for $($DESKTOP_NAMES[$c.Id])." } else { $c.Note })
+        [pscustomobject]@{ Id = $c.Id; Name = $DESKTOP_NAMES[$c.Id]; Looks = $c.Looks; Note = $note; Size = $c.Size; Blocked = $blocked; Fade = $(if ($blocked) { 0.55 } else { 1.0 })
                            Windows = (Get-Dots $c.W); Mac = (Get-Dots $c.M); Custom = (Get-Dots $c.C); Light = (Get-Dots $c.L)
                            Wall = $c.Wall; Top = $c.Top; Bottom = $c.Bottom; Dock = $c.Dock; StartAlign = 'Left'; StartColor = $c.StartColor
                            WinCorner = $c.Corner; TitleCorner = "$($c.Corner),$($c.Corner),0,0"
-                           Badge = $(if ($c.Id -eq $cur) { 'Current' } elseif ($installed -contains $c.Id) { 'Installed' } else { '' }) }
+                           Badge = $(if ($c.Id -eq $cur) { 'Current' } elseif ($installed -contains $c.Id) { 'Installed' } elseif ($blocked) { 'Not available' } else { '' }) }
     })
     $ui.DeskTitle.Text = "Choose a desktop for $distro"
     $ui.DeskList.ItemsSource = $rows
     $pick = @($rows | Where-Object { $_.Id -eq $cur }) | Select-Object -First 1
+    if (-not $pick) { $pick = @($rows | Where-Object { -not $_.Blocked }) | Select-Object -First 1 }
     if ($pick) { $ui.DeskList.SelectedItem = $pick } else { $ui.DeskList.SelectedIndex = 0 }
     Update-DeskForm
     Open-Panel 'PanelDesktop'
 }
 function Update-DeskForm {
     $sel = $ui.DeskList.SelectedItem
-    $ui.BtnDeskOk.IsEnabled = ($null -ne $sel -and $sel.Badge -ne 'Current')
+    $ui.BtnDeskOk.IsEnabled = ($null -ne $sel -and $sel.Badge -ne 'Current' -and -not $sel.Blocked)
     $ui.BtnDeskOk.Content = $(if (-not $sel) { 'Install' }
+                              elseif ($sel.Blocked) { "$($sel.Name) does not work here" }
                               elseif ($sel.Badge -eq 'Current') { "$($sel.Name) is in use" }
                               elseif ($sel.Badge -eq 'Installed') { "Switch to $($sel.Name)" }
                               else { "Install $($sel.Name)" })
@@ -1691,14 +1697,25 @@ $ui.BtnChooseDesktop.Add_Click({
     $d = (Get-CurrentDistro).Name
     $script:Open = @{ Distro = $d; Account = (Get-OpenAsAccount); Mode = 'Desktop'; AfterInstall = $false; SkipFirstUser = $false
                       Port = (Get-DistroPort $d); IsKali = $false; ChangeOnly = $true }
-    Start-Task "Checking $d" { Get-DistroDesktopInfo $A.Distro } @{ Distro = $d } {
+    Open-DesktopPicker $d
+})
+
+# Finds out what the distro has and which desktops it can run (asked from its
+# package manager, so nothing is downloaded that would not work), then shows
+# the picker.
+function Open-DesktopPicker([string]$distro) {
+    Start-Task "Checking $distro" {
+        $i = Get-DistroDesktopInfo $A.Distro
+        if (-not $i.IsKali) { $i.Unavailable = Get-UnavailableDesktops $A.Distro }
+        $i
+    } @{ Distro = $distro } {
         param($info)
         if ($info.IsKali) {
             Show-Info 'Kali has its own desktop' ("$($script:Open.Distro) is Kali Linux, which opens Kali's own XFCE through Win-KeX. " +
                 'Press Open desktop: it installs that desktop the first time.')
         } else { Show-DesktopPicker $script:Open.Distro $info }
     }
-})
+}
 
 # ------------------------------------------------------------------------------
 # Clone: a full copy of the distro under a new name
@@ -2055,6 +2072,9 @@ if ($Validate) {
     if ($ui.DeskList.Items.Count -ne $DESKTOP_IDS.Count) { throw 'The desktop picker does not show every desktop.' }
     $ui.DeskList.SelectedIndex = 1
     if ([string]$ui.BtnDeskOk.Content -ne 'Install KDE Plasma') { throw 'The desktop picker button does not follow the choice.' }
+    Show-DesktopPicker 'TestDistro' @{ IsKali = $false; Installed = @(); Current = ''; Unavailable = @('kde') }
+    $ui.DeskList.SelectedIndex = 1
+    if ($ui.BtnDeskOk.IsEnabled -or $ui.DeskList.SelectedItem.Badge -ne 'Not available') { throw 'The desktop picker offers a desktop the distro cannot run.' }
     if ((Get-Dots 3).Length -ne 5) { throw 'Get-Dots is wrong.' }
     $script:CloneBase = ''; $ui.CloneName.Text = 'TestDistro-copy'; Open-Panel 'PanelClone'; Update-CloneForm
     if ($ui.BtnCloneOk.IsEnabled) { throw 'Clone is on before a folder was chosen.' }

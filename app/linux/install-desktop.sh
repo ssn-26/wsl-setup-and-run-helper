@@ -9,11 +9,79 @@
 # Configures Polkit to suppress annoying authentication prompts (colord/packagekit).
 # Configures WSLg PulseAudio forwarding for sound support.
 #
-# Usage: ./install-desktop.sh [PORT] [DESKTOP]
+# Usage: ./install-desktop.sh [PORT] [DESKTOP]   or   ./install-desktop.sh --check
 # Example: ./install-desktop.sh 3390 kde
 # Exit codes: 21 unknown package manager, 22 unknown desktop, 23 that desktop
 # is not available for this distro, 20 AUR build failed (Arch).
 # ==============================================================================
+
+# ./install-desktop.sh --check: downloads no desktop, only asks the package
+# manager which desktops this distro can run under Remote Desktop (they need
+# an X11 session). Prints CAN=<id> or CANNOT=<id> for each desktop, or
+# CHECK_FAILED when the package lists cannot be read (e.g. no internet).
+check_desktops() {
+    if command -v apt-get >/dev/null 2>&1; then
+        # Fresh images have no package lists yet; existing ones are good enough
+        # (a release never drops a desktop's packages).
+        if ! ls /var/lib/apt/lists/*_Packages* >/dev/null 2>&1; then
+            apt-get update >/dev/null 2>&1 || { echo CHECK_FAILED; return; }
+        fi
+        has() { apt-cache show "$1" >/dev/null 2>&1; }
+        has xrdp || { echo CHECK_FAILED; return; }
+        has xfce4 && x=1 || x=0
+        has kwin-x11 && { has kde-plasma-desktop || has plasma-desktop; } && k=1 || k=0
+        { has cinnamon-core || has cinnamon; } && c=1 || c=0
+        { has mate-desktop-environment-core || has mate-desktop-environment; } && m=1 || m=0
+        has lxqt-core && has openbox && l=1 || l=0
+    elif command -v dnf >/dev/null 2>&1; then
+        has() { dnf -q repoquery "$1" 2>/dev/null | grep -q .; }
+        has xfce4-session || has mate-session-manager || has lxqt-session || { echo CHECK_FAILED; return; }
+        has xfce4-session && x=1 || x=0
+        has plasma-workspace-x11 && k=1 || k=0
+        has cinnamon && c=1 || c=0
+        has mate-session-manager && m=1 || m=0
+        has lxqt-session && l=1 || l=0
+    elif command -v zypper >/dev/null 2>&1; then
+        has() { zypper --non-interactive --quiet search -x -t package "$1" >/dev/null 2>&1; }
+        has xfce4-session || has lxqt-session || { echo CHECK_FAILED; return; }
+        has xfce4-session && x=1 || x=0
+        { has plasma6-session-x11 || has plasma5-session; } && k=1 || k=0
+        { has cinnamon-session || has cinnamon; } && c=1 || c=0
+        has mate-session-manager && m=1 || m=0
+        has lxqt-session && l=1 || l=0
+    elif command -v yum >/dev/null 2>&1; then
+        x=1; k=0; c=0; m=0; l=0
+    elif command -v pacman >/dev/null 2>&1; then
+        # Arch is rolling: refresh the (small) package lists so a package that
+        # was just dropped counts as gone. -Sy without -u installs nothing.
+        arch_keyring
+        pacman -Sy --noconfirm >/dev/null 2>&1 || { echo CHECK_FAILED; return; }
+        has() { pacman -Si "$1" >/dev/null 2>&1 || pacman -Sg "$1" 2>/dev/null | grep -q .; }
+        has xfce4 && x=1 || x=0
+        has plasma-desktop && has plasma-x11-session && k=1 || k=0
+        has cinnamon && c=1 || c=0
+        has mate && m=1 || m=0
+        has lxqt && l=1 || l=0
+    else
+        echo CHECK_FAILED; return
+    fi
+    for pair in xfce:$x kde:$k cinnamon:$c mate:$m lxqt:$l; do
+        if [ "${pair#*:}" = 1 ]; then echo "CAN=${pair%%:*}"; else echo "CANNOT=${pair%%:*}"; fi
+    done
+}
+
+arch_keyring() {
+    if ! pacman-key --list-keys 2>/dev/null | grep -q '^pub'; then
+        echo "==> Initializing pacman keys (Arch first run)..."
+        pacman-key --init >/dev/null 2>&1
+        pacman-key --populate archlinux >/dev/null 2>&1
+    fi
+}
+
+if [ "$1" = "--check" ]; then
+    check_desktops
+    exit 0
+fi
 
 PORT="${1:-3390}"
 DESKTOP="${2:-xfce}"
@@ -76,6 +144,8 @@ install_dnf() {
         xfce) dnf group install -y "Xfce Desktop" || dnf groupinstall -y "Xfce" || dnf install -y @xfce-desktop-environment ;;
         *)    dnf install -y "@${DESKTOP}-desktop-environment" || dnf group install -y "${DESKTOP}-desktop-environment" ;;
     esac
+    # The KDE group leaves out its X11 session, which Remote Desktop needs.
+    if [ "$DESKTOP" = kde ]; then dnf install -y plasma-workspace-x11 || true; fi
 }
 
 install_yum() {
@@ -94,14 +164,6 @@ install_zypper() {
         mate)     zypper --non-interactive install -t pattern mate || zypper --non-interactive install mate-session-manager ;;
         lxqt)     zypper --non-interactive install -t pattern lxqt || zypper --non-interactive install lxqt-session ;;
     esac
-}
-
-arch_keyring() {
-    if ! pacman-key --list-keys 2>/dev/null | grep -q '^pub'; then
-        echo "==> Initializing pacman keys (Arch first run)..."
-        pacman-key --init >/dev/null 2>&1
-        pacman-key --populate archlinux >/dev/null 2>&1
-    fi
 }
 
 install_pacman() {

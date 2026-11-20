@@ -844,6 +844,19 @@ function Get-DistroDesktopInfo([string]$distro) {
     return $info
 }
 
+# Which desktops this distro cannot run under Remote Desktop, asked from its
+# package manager before anything is downloaded (install-desktop.sh --check).
+# Returns @(ids); empty when all work or the check could not tell (no internet:
+# then the install itself still says so if one is not available).
+function Get-UnavailableDesktops([string]$distro) {
+    Write-TaskLog "Checking which desktops $distro can run (nothing is installed yet)..."
+    $res = Invoke-WslScript $distro 'root' (Get-ScriptText 'install-desktop.sh') @('--check')
+    $no = @()
+    foreach ($l in $res.Output) { if ($l -match '^CANNOT=(\w+)$' -and $DESKTOP_IDS -contains $Matches[1]) { $no += $Matches[1] } }
+    if (@($res.Output) -contains 'CHECK_FAILED') { Write-TaskLog 'Could not read the package lists - every desktop is offered.' }
+    return ,$no
+}
+
 # Makes Remote Desktop start an already installed desktop (no download): the
 # session file and the panel's record. Returns $true on success.
 function Set-DistroSession([string]$distro, [string]$desktop) {

@@ -1255,7 +1255,7 @@
               <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
               <ListBox.ItemTemplate>
                 <DataTemplate>
-                  <StackPanel>
+                  <StackPanel Opacity="{Binding Fade}">
                     <!-- The sketch: wallpaper, a window, and where the panels sit -->
                     <Border Height="140" CornerRadius="4" Background="{Binding Wall}" ClipToBounds="True">
                       <Grid>
@@ -1285,7 +1285,16 @@
                       </Grid>
                     </Border>
                     <DockPanel Margin="0,12,0,0">
-                      <TextBlock DockPanel.Dock="Right" Text="{Binding Badge}" FontSize="12" Foreground="{DynamicResource Ok}" VerticalAlignment="Center"/>
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding Badge}" FontSize="12" VerticalAlignment="Center">
+                        <TextBlock.Style>
+                          <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{DynamicResource Ok}"/>
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding Blocked}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Warn}"/></DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </TextBlock.Style>
+                      </TextBlock>
                       <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold"/>
                     </DockPanel>
                     <TextBlock Text="{Binding Looks}" Style="{StaticResource MutedText}" Margin="0,2,0,8"/>
